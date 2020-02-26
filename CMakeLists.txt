@@ -12,6 +12,7 @@ include_directories(
 	${CMAKE_CURRENT_SOURCE_DIR}/sudo/src
 	${CMAKE_CURRENT_SOURCE_DIR}/sudo/include
 	${CMAKE_CURRENT_SOURCE_DIR}/sudo/plugins/sudoers
+	${CMAKE_SOURCE_DIR}/src/libutil
 )
 
 add_darling_static_library(sudoutil SOURCES
@@ -122,7 +123,7 @@ add_darling_executable(visudo
 )
 target_link_libraries(visudo sudoutil parsesudoers)
 
-install(TARGETS sudo DESTINATION libexec/darling/usr/bin PERMISSIONS SETUID OWNER_READ OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE)
+install(TARGETS sudo DESTINATION libexec/darling/usr/bin PERMISSIONS SETUID OWNER_READ OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 install(TARGETS visudo DESTINATION libexec/darling/usr/bin PERMISSIONS OWNER_EXECUTE GROUP_EXECUTE WORLD_EXECUTE)
 install(DIRECTORY DESTINATION libexec/darling/etc/sudoers.d)
 install(FILES files/sudoers files/sudo_lecture DESTINATION libexec/darling/etc PERMISSIONS OWNER_READ GROUP_READ)
