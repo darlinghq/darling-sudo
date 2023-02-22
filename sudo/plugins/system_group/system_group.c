@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2010-2014 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2010-2014 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,10 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
 
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <config.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,19 +30,11 @@
 #else
 # include "compat/stdbool.h"
 #endif /* HAVE_STDBOOL_H */
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
+#include <string.h>
 #ifdef HAVE_STRINGS_H
 # include <strings.h>
 #endif /* HAVE_STRINGS_H */
-#include <unistd.h>
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <limits.h>
 #include <grp.h>
-#include <pwd.h>
 
 #include "sudo_compat.h"
 #include "sudo_dso.h"
@@ -51,8 +47,6 @@
  * This can be used on systems where lookups by group ID are problematic.
  */
 
-static sudo_printf_t sudo_log;
-
 typedef struct group * (*sysgroup_getgrnam_t)(const char *);
 typedef struct group * (*sysgroup_getgrgid_t)(gid_t);
 typedef void (*sysgroup_gr_delref_t)(struct group *);
@@ -63,14 +57,12 @@ static sysgroup_gr_delref_t sysgroup_gr_delref;
 static bool need_setent;
 
 static int
-sysgroup_init(int version, sudo_printf_t sudo_printf, char *const argv[])
+sysgroup_init(int version, sudo_printf_t plugin_printf, char *const argv[])
 {
     void *handle;
 
-    sudo_log = sudo_printf;
-
     if (SUDO_API_VERSION_GET_MAJOR(version) != GROUP_API_VERSION_MAJOR) {
-	sudo_log(SUDO_CONV_ERROR_MSG,
+	plugin_printf(SUDO_CONV_ERROR_MSG,
 	    "sysgroup_group: incompatible major version %d, expected %d\n",
 	    SUDO_API_VERSION_GET_MAJOR(version),
 	    GROUP_API_VERSION_MAJOR);
@@ -123,7 +115,7 @@ sysgroup_query(const char *user, const char *group, const struct passwd *pwd)
     grp = sysgroup_getgrnam(group);
     if (grp == NULL && group[0] == '#' && group[1] != '\0') {
 	const char *errstr;
-	gid_t gid = sudo_strtoid(group + 1, NULL, NULL, &errstr);
+	gid_t gid = sudo_strtoid(group + 1, &errstr);
 	if (errstr == NULL)
 	    grp = sysgroup_getgrgid(gid);
     }
@@ -144,7 +136,7 @@ sysgroup_query(const char *user, const char *group, const struct passwd *pwd)
     return false;
 }
 
-__dso_public struct sudoers_group_plugin group_plugin = {
+sudo_dso_public struct sudoers_group_plugin group_plugin = {
     GROUP_API_VERSION,
     sysgroup_init,
     sysgroup_cleanup,

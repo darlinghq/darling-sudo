@@ -1,6 +1,8 @@
 /*
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2005, 2008, 2010-2015
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ *	Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +18,11 @@
  */
 
 /*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
+/*
  * Trivial replacements for the libc get{gr,pw}{uid,nam}() routines
  * for use by testsudoers in the sudo test harness.
  * We need our own since many platforms don't provide set{pw,gr}file().
@@ -23,18 +30,12 @@
 
 #include <config.h>
 
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
-#include <errno.h>
+#include <string.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <unistd.h>
 
 #include "tsgetgrpw.h"
 #include "sudoers.h"
@@ -85,8 +86,12 @@ setpwent(void)
 {
     if (pwf == NULL) {
 	pwf = fopen(pwfile, "r");
-	if (pwf != NULL)
-	    (void)fcntl(fileno(pwf), F_SETFD, FD_CLOEXEC);
+	if (pwf != NULL) {
+	    if (fcntl(fileno(pwf), F_SETFD, FD_CLOEXEC) == -1) {
+		fclose(pwf);
+		pwf = NULL;
+	    }
+	}
     } else {
 	rewind(pwf);
     }
@@ -129,14 +134,14 @@ next_entry:
     if ((colon = strchr(cp = colon, ':')) == NULL)
 	goto next_entry;
     *colon++ = '\0';
-    id = sudo_strtoid(cp, NULL, NULL, &errstr);
+    id = sudo_strtoid(cp, &errstr);
     if (errstr != NULL)
 	goto next_entry;
     pw.pw_uid = (uid_t)id;
     if ((colon = strchr(cp = colon, ':')) == NULL)
 	goto next_entry;
     *colon++ = '\0';
-    id = sudo_strtoid(cp, NULL, NULL, &errstr);
+    id = sudo_strtoid(cp, &errstr);
     if (errstr != NULL)
 	goto next_entry;
     pw.pw_gid = (gid_t)id;
@@ -163,7 +168,10 @@ getpwnam(const char *name)
     if (pwf == NULL) {
 	if ((pwf = fopen(pwfile, "r")) == NULL)
 	    return NULL;
-	(void)fcntl(fileno(pwf), F_SETFD, FD_CLOEXEC);
+	if (fcntl(fileno(pwf), F_SETFD, FD_CLOEXEC) == -1) {
+	    fclose(pwf);
+	    return NULL;
+	}
     } else {
 	rewind(pwf);
     }
@@ -186,7 +194,10 @@ getpwuid(uid_t uid)
     if (pwf == NULL) {
 	if ((pwf = fopen(pwfile, "r")) == NULL)
 	    return NULL;
-	(void)fcntl(fileno(pwf), F_SETFD, FD_CLOEXEC);
+	if (fcntl(fileno(pwf), F_SETFD, FD_CLOEXEC) == -1) {
+	    fclose(pwf);
+	    return NULL;
+	}
     } else {
 	rewind(pwf);
     }
@@ -214,8 +225,12 @@ setgrent(void)
 {
     if (grf == NULL) {
 	grf = fopen(grfile, "r");
-	if (grf != NULL)
-	    (void)fcntl(fileno(grf), F_SETFD, FD_CLOEXEC);
+	if (grf != NULL) {
+	    if (fcntl(fileno(grf), F_SETFD, FD_CLOEXEC) == -1) {
+		fclose(grf);
+		grf = NULL;
+	    }
+	}
     } else {
 	rewind(grf);
     }
@@ -259,7 +274,7 @@ next_entry:
     if ((colon = strchr(cp = colon, ':')) == NULL)
 	goto next_entry;
     *colon++ = '\0';
-    id = sudo_strtoid(cp, NULL, NULL, &errstr);
+    id = sudo_strtoid(cp, &errstr);
     if (errstr != NULL)
 	goto next_entry;
     gr.gr_gid = (gid_t)id;
@@ -289,7 +304,10 @@ getgrnam(const char *name)
     if (grf == NULL) {
 	if ((grf = fopen(grfile, "r")) == NULL)
 	    return NULL;
-	(void)fcntl(fileno(grf), F_SETFD, FD_CLOEXEC);
+	if (fcntl(fileno(grf), F_SETFD, FD_CLOEXEC) == -1) {
+	    fclose(grf);
+	    grf = NULL;
+	}
     } else {
 	rewind(grf);
     }
@@ -312,7 +330,10 @@ getgrgid(gid_t gid)
     if (grf == NULL) {
 	if ((grf = fopen(grfile, "r")) == NULL)
 	    return NULL;
-	(void)fcntl(fileno(grf), F_SETFD, FD_CLOEXEC);
+	if (fcntl(fileno(grf), F_SETFD, FD_CLOEXEC) == -1) {
+	    fclose(grf);
+	    grf = NULL;
+	}
     } else {
 	rewind(grf);
     }
@@ -325,4 +346,82 @@ getgrgid(gid_t gid)
 	grf = NULL;
     }
     return gr;
+}
+
+/*
+ * Copied from getgrouplist.c
+ */
+int
+sudo_getgrouplist2_v1(const char *name, GETGROUPS_T basegid,
+    GETGROUPS_T **groupsp, int *ngroupsp)
+{
+    GETGROUPS_T *groups = *groupsp;
+    int i, grpsize, ngroups = 1;
+    int ret = -1;
+    struct group *grp;
+
+    if (groups == NULL) {
+	/* Dynamically-sized group vector. */
+	grpsize = (int)sysconf(_SC_NGROUPS_MAX);
+	if (grpsize < 0)
+	    grpsize = NGROUPS_MAX;
+	groups = reallocarray(NULL, grpsize, 4 * sizeof(*groups));
+	if (groups == NULL)
+	    return -1;
+	grpsize <<= 2;
+    } else {
+	/* Static group vector. */
+	if ((grpsize = *ngroupsp) < 1)
+	    return -1;
+    }
+
+    /* We support BSD semantics where the first element is the base gid */
+    groups[0] = basegid;
+
+    setgrent();
+    while ((grp = getgrent()) != NULL) {
+	if (grp->gr_gid == basegid || grp->gr_mem == NULL)
+	    continue;
+
+	for (i = 0; grp->gr_mem[i] != NULL; i++) {
+	    if (strcmp(name, grp->gr_mem[i]) == 0)
+		break;
+	}
+	if (grp->gr_mem[i] == NULL)
+	    continue; /* user not found */
+
+	/* Only add if it is not the same as an existing gid */
+	for (i = 0; i < ngroups; i++) {
+	    if (grp->gr_gid == groups[i])
+		break;
+	}
+	if (i == ngroups) {
+	    if (ngroups == grpsize) {
+		GETGROUPS_T *tmp;
+
+		if (*groupsp != NULL) {
+		    /* Static group vector. */
+		    goto done;
+		}
+		tmp = reallocarray(groups, grpsize, 2 * sizeof(*groups));
+		if (tmp == NULL) {
+		    free(groups);
+		    groups = NULL;
+		    ngroups = 0;
+		    goto done;
+		}
+		groups = tmp;
+		grpsize <<= 1;
+	    }
+	    groups[ngroups++] = grp->gr_gid;
+	}
+    }
+    ret = 0;
+
+done:
+    endgrent();
+    *groupsp = groups;
+    *ngroupsp = ngroups;
+
+    return ret;
 }

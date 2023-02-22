@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2009-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2009-2016 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,30 +16,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
 
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
-#include <unistd.h>
+#include <config.h>
+#include <string.h>
 #include <errno.h>
 #include <signal.h>
 
 #include "sudo.h"
 #include "sudo_exec.h"
 
-int signal_pipe[2];
-
 static struct signal_state {
     int signo;
     int restore;
-    sigaction_t sa;
+    struct sigaction sa;
 } saved_signals[] = {
     { SIGALRM },	/* SAVED_SIGALRM */
     { SIGCHLD },	/* SAVED_SIGCHLD */
@@ -55,6 +50,21 @@ static struct signal_state {
     { -1 }
 };
 
+static sig_atomic_t pending_signals[NSIG];
+
+static void
+sudo_handler(int signo)
+{
+    /* Mark signal as pending. */
+    pending_signals[signo] = 1;
+}
+
+bool
+signal_pending(int signo)
+{
+    return pending_signals[signo] == 1;
+}
+
 /*
  * Save signal handler state so it can be restored before exec.
  */
@@ -62,7 +72,7 @@ void
 save_signals(void)
 {
     struct signal_state *ss;
-    debug_decl(save_signals, SUDO_DEBUG_MAIN)
+    debug_decl(save_signals, SUDO_DEBUG_MAIN);
 
     for (ss = saved_signals; ss->signo != -1; ss++) {
 	if (sigaction(ss->signo, NULL, &ss->sa) != 0)
@@ -79,10 +89,14 @@ void
 restore_signals(void)
 {
     struct signal_state *ss;
-    debug_decl(restore_signals, SUDO_DEBUG_MAIN)
+    debug_decl(restore_signals, SUDO_DEBUG_MAIN);
 
     for (ss = saved_signals; ss->signo != -1; ss++) {
 	if (ss->restore) {
+	    sudo_debug_printf(SUDO_DEBUG_INFO,
+		"restoring handler for signal %d: %s", ss->signo,
+		ss->sa.sa_handler == SIG_IGN ? "SIG_IGN" :
+		ss->sa.sa_handler == SIG_DFL ? "SIG_DFL" : "???");
 	    if (sigaction(ss->signo, &ss->sa, NULL) != 0) {
 		sudo_warn(U_("unable to restore handler for signal %d"),
 		    ss->signo);
@@ -91,21 +105,6 @@ restore_signals(void)
     }
 
     debug_return;
-}
-
-static void
-sudo_handler(int s)
-{
-    unsigned char signo = (unsigned char)s;
-
-    /*
-     * The pipe is non-blocking, if we overflow the kernel's pipe
-     * buffer we drop the signal.  This is not a problem in practice.
-     */
-    while (write(signal_pipe[1], &signo, sizeof(signo)) == -1) {
-	if (errno != EINTR)
-	    break;
-    }
 }
 
 /*
@@ -119,14 +118,7 @@ init_signals(void)
 {
     struct sigaction sa;
     struct signal_state *ss;
-    debug_decl(init_signals, SUDO_DEBUG_MAIN)
-
-    /*
-     * We use a pipe to atomically handle signal notification within
-     * the select() loop without races (we may not have pselect()).
-     */
-    if (pipe_nonblock(signal_pipe) != 0)
-	sudo_fatal(U_("unable to create pipe"));
+    debug_decl(init_signals, SUDO_DEBUG_MAIN);
 
     memset(&sa, 0, sizeof(sa));
     sigfillset(&sa.sa_mask);
@@ -135,7 +127,6 @@ init_signals(void)
 
     for (ss = saved_signals; ss->signo > 0; ss++) {
 	switch (ss->signo) {
-	    case SIGCHLD:
 	    case SIGCONT:
 	    case SIGPIPE:
 	    case SIGTTIN:
@@ -154,6 +145,9 @@ init_signals(void)
     }
     /* Ignore SIGPIPE until exec. */
     if (saved_signals[SAVED_SIGPIPE].sa.sa_handler != SIG_IGN) {
+	sudo_debug_printf(SUDO_DEBUG_INFO,
+	    "will restore signal %d on exec", SIGPIPE);
+	saved_signals[SAVED_SIGPIPE].restore = true;
 	sa.sa_handler = SIG_IGN;
 	if (sigaction(SIGPIPE, &sa, NULL) != 0)
 	    sudo_warn(U_("unable to set handler for signal %d"), SIGPIPE);
@@ -170,8 +164,8 @@ int
 sudo_sigaction(int signo, struct sigaction *sa, struct sigaction *osa)
 {
     struct signal_state *ss;
-    int rval;
-    debug_decl(sudo_sigaction, SUDO_DEBUG_MAIN)
+    int ret;
+    debug_decl(sudo_sigaction, SUDO_DEBUG_MAIN);
 
     for (ss = saved_signals; ss->signo > 0; ss++) {
 	if (ss->signo == signo) {
@@ -184,7 +178,7 @@ sudo_sigaction(int signo, struct sigaction *sa, struct sigaction *osa)
 	    break;
 	}
     }
-    rval = sigaction(signo, sa, osa);
+    ret = sigaction(signo, sa, osa);
 
-    debug_return_int(rval);
+    debug_return_int(ret);
 }

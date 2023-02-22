@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2012 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2012 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,18 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
 
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
-#include <unistd.h>
+#include <config.h>
 
 #include "sudo.h"
 
@@ -34,7 +30,7 @@ os_init(int argc, char *argv[], char *envp[])
 {
 #ifdef SUDO_DEVEL
     extern char *malloc_options;
-    malloc_options = "AFGJPR";
+    malloc_options = "S";
 #endif
     return os_init_common(argc, argv, envp);
 }

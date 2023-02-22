@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2014-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2014-2015 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,28 +16,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STDBOOL_H
-# include <stdbool.h>
-#else
-# include "compat/stdbool.h"
-#endif
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
-#include <unistd.h>
-#include <ctype.h>
+#include <string.h>
 
 #include "sudoers.h"
 
 static int sudoers_debug_instance = SUDO_DEBUG_INSTANCE_INITIALIZER;
+static unsigned int sudoers_debug_refcnt;
 
 static const char *const sudoers_subsystem_names[] = {
     "alias",
@@ -59,7 +54,7 @@ static const char *const sudoers_subsystem_names[] = {
     NULL
 };
 
-#define NUM_SUBSYSTEMS  (sizeof(sudoers_subsystem_names) / sizeof(sudoers_subsystem_names[0]) - 1)
+#define NUM_SUBSYSTEMS  (nitems(sudoers_subsystem_names) - 1)
 
 /* Subsystem IDs assigned at registration time. */
 unsigned int sudoers_subsystem_ids[NUM_SUBSYSTEMS];
@@ -72,57 +67,30 @@ bool
 sudoers_debug_parse_flags(struct sudo_conf_debug_file_list *debug_files,
     const char *entry)
 {
-    struct sudo_debug_file *debug_file;
-    const char *filename, *flags;
-    size_t namelen;
-
     /* Already initialized? */
     if (sudoers_debug_instance != SUDO_DEBUG_INSTANCE_INITIALIZER)
 	return true;
 
-    /* Only process new-style debug flags: filename flags,... */
-    filename = entry;
-    if (*filename != '/' || (flags = strpbrk(filename, " \t")) == NULL)
-	return true;
-    namelen = (size_t)(flags - filename);
-    while (isblank((unsigned char)*flags))
-	flags++;
-    if (*flags != '\0') {
-	if ((debug_file = calloc(1, sizeof(*debug_file))) == NULL)
-	    goto oom;
-	if ((debug_file->debug_file = strndup(filename, namelen)) == NULL)
-	    goto oom;
-	if ((debug_file->debug_flags = strdup(flags)) == NULL)
-	    goto oom;
-	TAILQ_INSERT_TAIL(debug_files, debug_file, entries);
-    }
-    return true;
-oom:
-    if (debug_file != NULL) {
-	free(debug_file->debug_file);
-	free(debug_file->debug_flags);
-	free(debug_file);
-    }
-    sudo_warnx_nodebug(U_("%s: %s"), "sudoers_debug_parse_flags",
-	U_("unable to allocate memory"));
-    return false;
+    return sudo_debug_parse_flags(debug_files, entry) != -1;
 }
 
 /*
  * Register the specified debug files and program with the
  * debug subsystem, freeing the debug list when done.
+ * Sets the active debug instance as a side effect.
  */
-void
+bool
 sudoers_debug_register(const char *program,
     struct sudo_conf_debug_file_list *debug_files)
 {
+    int instance = sudoers_debug_instance;
     struct sudo_debug_file *debug_file, *debug_next;
 
     /* Setup debugging if indicated. */
     if (debug_files != NULL && !TAILQ_EMPTY(debug_files)) {
 	if (program != NULL) {
-	    sudoers_debug_instance = sudo_debug_register(program,
-		sudoers_subsystem_names, sudoers_subsystem_ids, debug_files);
+	    instance = sudo_debug_register(program, sudoers_subsystem_names,
+		sudoers_subsystem_ids, debug_files);
 	}
 	TAILQ_FOREACH_SAFE(debug_file, debug_files, entries, debug_next) {
 	    TAILQ_REMOVE(debug_files, debug_file, entries);
@@ -131,6 +99,22 @@ sudoers_debug_register(const char *program,
 	    free(debug_file);
 	}
     }
+
+    switch (instance) {
+    case SUDO_DEBUG_INSTANCE_ERROR:
+	return false;
+    case SUDO_DEBUG_INSTANCE_INITIALIZER:
+	/* Nothing to do */
+	break;
+    default:
+	/* New debug instance or additional reference on existing one. */
+	sudoers_debug_instance = instance;
+	sudo_debug_set_active_instance(sudoers_debug_instance);
+	sudoers_debug_refcnt++;
+	break;
+    }
+
+    return true;
 }
 
 /*
@@ -139,10 +123,13 @@ sudoers_debug_register(const char *program,
 void
 sudoers_debug_deregister(void)
 {
-    debug_decl(sudoers_debug_deregister, SUDOERS_DEBUG_PLUGIN)
-    if (sudoers_debug_instance != SUDO_DEBUG_INSTANCE_INITIALIZER) {
+    debug_decl(sudoers_debug_deregister, SUDOERS_DEBUG_PLUGIN);
+
+    if (sudoers_debug_refcnt != 0) {
 	sudo_debug_exit(__func__, __FILE__, __LINE__, sudo_debug_subsys);
-        sudo_debug_deregister(sudoers_debug_instance);
-	sudoers_debug_instance = SUDO_DEBUG_INSTANCE_INITIALIZER;
+	if (--sudoers_debug_refcnt == 0) {
+	    if (sudo_debug_deregister(sudoers_debug_instance) < 1)
+		sudoers_debug_instance = SUDO_DEBUG_INSTANCE_INITIALIZER;
+	}
     }
 }

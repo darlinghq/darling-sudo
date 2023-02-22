@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2013-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2013-2015 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,10 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <config.h>
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
 
-#include <sys/types.h>
-#include <stdio.h>
+#include <config.h>
 
 #include "sudoers.h"
 
@@ -30,7 +34,7 @@ hexchar(const char *s)
 {
     unsigned char result[2];
     int i;
-    debug_decl(hexchar, SUDOERS_DEBUG_UTIL)
+    debug_decl(hexchar, SUDOERS_DEBUG_UTIL);
 
     for (i = 0; i < 2; i++) {
 	switch (s[i]) {

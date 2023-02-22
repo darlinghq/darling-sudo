@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2013-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2013-2015 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,18 +16,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
-#include <sys/types.h>
-
-#include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -40,7 +39,7 @@ int
 add_preserved_fd(struct preserved_fd_list *pfds, int fd)
 {
     struct preserved_fd *pfd, *pfd_new;
-    debug_decl(add_preserved_fd, SUDO_DEBUG_UTIL)
+    debug_decl(add_preserved_fd, SUDO_DEBUG_UTIL);
 
     pfd_new = malloc(sizeof(*pfd));
     if (pfd_new == NULL)
@@ -59,16 +58,18 @@ add_preserved_fd(struct preserved_fd_list *pfds, int fd)
 	    sudo_debug_printf(SUDO_DEBUG_DEBUG|SUDO_DEBUG_LINENO,
 		"fd %d already preserved", fd);
 	    free(pfd_new);
+	    pfd_new = NULL;
 	    break;
 	}
 	if (fd < pfd->highfd) {
 	    TAILQ_INSERT_BEFORE(pfd, pfd_new, entries);
 	    sudo_debug_printf(SUDO_DEBUG_DEBUG|SUDO_DEBUG_LINENO,
 		"preserving fd %d", fd);
+	    pfd_new = NULL;
 	    break;
 	}
     }
-    if (pfd == NULL) {
+    if (pfd_new != NULL) {
 	TAILQ_INSERT_TAIL(pfds, pfd_new, entries);
 	sudo_debug_printf(SUDO_DEBUG_DEBUG|SUDO_DEBUG_LINENO,
 	    "preserving fd %d", fd);
@@ -87,7 +88,7 @@ closefrom_except(int startfd, struct preserved_fd_list *pfds)
     int fd, lastfd = -1;
     struct preserved_fd *pfd, *pfd_next;
     unsigned char *fdbits;
-    debug_decl(closefrom_except, SUDO_DEBUG_UTIL)
+    debug_decl(closefrom_except, SUDO_DEBUG_UTIL);
 
     /* First, relocate preserved fds to be as contiguous as possible.  */
     TAILQ_FOREACH_REVERSE_SAFE(pfd, pfds, preserved_fd_list, entries, pfd_next) {
@@ -192,7 +193,7 @@ parse_preserved_fds(struct preserved_fd_list *pfds, const char *fdstr)
     const char *cp = fdstr;
     long lval;
     char *ep;
-    debug_decl(parse_preserved_fds, SUDO_DEBUG_UTIL)
+    debug_decl(parse_preserved_fds, SUDO_DEBUG_UTIL);
 
     do {
 	errno = 0;

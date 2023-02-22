@@ -1,6 +1,8 @@
 /*
- * Copyright (c) 1993-1996,1998-2005, 2007-2015
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 1993-1996,1998-2005, 2007-2018
+ *	Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,24 +21,21 @@
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
-#include <sys/types.h>
-#include <sys/time.h>
+#include <sys/types.h>			/* for ssize_t */
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <unistd.h>
-#ifdef TIME_WITH_SYS_TIME
-# include <time.h>
-#endif
-#include <errno.h>
 #include <fcntl.h>
+#include <time.h>
+#include <errno.h>
 #include <pwd.h>
 #include <grp.h>
 
@@ -47,6 +46,7 @@ static bool display_lecture(int);
 static struct passwd *get_authpw(int);
 
 struct getpass_closure {
+    int tstat;
     void *cookie;
     struct passwd *auth_pw;
 };
@@ -85,38 +85,31 @@ getpass_resume(int signo, void *vclosure)
  * or -1 on fatal error.
  */
 static int
-check_user_interactive(int validated, int mode, struct passwd *auth_pw)
+check_user_interactive(int validated, int mode, struct getpass_closure *closure)
 {
     struct sudo_conv_callback cb, *callback = NULL;
-    struct getpass_closure closure;
-    int status = TS_ERROR;
-    int rval = -1;
+    int ret = -1;
     char *prompt;
     bool lectured;
-    debug_decl(check_user_interactive, SUDOERS_DEBUG_AUTH)
-
-    /* Setup closure for getpass_{suspend,resume} */
-    closure.auth_pw = auth_pw;
-    closure.cookie = NULL;
-    sudo_pw_addref(closure.auth_pw);
+    debug_decl(check_user_interactive, SUDOERS_DEBUG_AUTH);
 
     /* Open, lock and read time stamp file if we are using it. */
     if (!ISSET(mode, MODE_IGNORE_TICKET)) {
 	/* Open time stamp file and check its status. */
-	closure.cookie = timestamp_open(user_name, user_sid);
-	if (timestamp_lock(closure.cookie, closure.auth_pw))
-	    status = timestamp_status(closure.cookie, closure.auth_pw);
+	closure->cookie = timestamp_open(user_name, user_sid);
+	if (timestamp_lock(closure->cookie, closure->auth_pw))
+	    closure->tstat = timestamp_status(closure->cookie, closure->auth_pw);
 
 	/* Construct callback for getpass function. */
 	memset(&cb, 0, sizeof(cb));
 	cb.version = SUDO_CONV_CALLBACK_VERSION;
-	cb.closure = &closure;
+	cb.closure = closure;
 	cb.on_suspend = getpass_suspend;
 	cb.on_resume = getpass_resume;
 	callback = &cb;
     }
 
-    switch (status) {
+    switch (closure->tstat) {
     case TS_FATAL:
 	/* Fatal error (usually setuid failure), unsafe to proceed. */
 	goto done;
@@ -124,10 +117,12 @@ check_user_interactive(int validated, int mode, struct passwd *auth_pw)
     case TS_CURRENT:
 	/* Time stamp file is valid and current. */
 	if (!ISSET(validated, FLAG_CHECK_USER)) {
-	    rval = true;
+	    ret = true;
 	    break;
 	}
-	/* FALLTHROUGH */
+	sudo_debug_printf(SUDO_DEBUG_INFO,
+	    "%s: check user flag overrides time stamp", __func__);
+	FALLTHROUGH;
 
     default:
 	/* Bail out if we are non-interactive and a password is required */
@@ -138,33 +133,23 @@ check_user_interactive(int validated, int mode, struct passwd *auth_pw)
 	}
 
 	/* XXX - should not lecture if askpass helper is being used. */
-	lectured = display_lecture(status);
+	lectured = display_lecture(closure->tstat);
 
 	/* Expand any escapes in the prompt. */
 	prompt = expand_prompt(user_prompt ? user_prompt : def_passprompt,
-	    closure.auth_pw->pw_name);
+	    closure->auth_pw->pw_name);
 	if (prompt == NULL)
 	    goto done;
 
-	rval = verify_user(closure.auth_pw, prompt, validated, callback);
-	if (rval == true && lectured)
+	ret = verify_user(closure->auth_pw, prompt, validated, callback);
+	if (ret == true && lectured)
 	    (void)set_lectured();	/* lecture error not fatal */
 	free(prompt);
 	break;
     }
 
-    /*
-     * Only update time stamp if user was validated.
-     * Failure to update the time stamp is not a fatal error.
-     */
-    if (rval == true && ISSET(validated, VALIDATE_SUCCESS) && status != TS_ERROR)
-	(void)timestamp_update(closure.cookie, closure.auth_pw);
 done:
-    if (closure.cookie != NULL)
-	timestamp_close(closure.cookie);
-    sudo_pw_delref(closure.auth_pw);
-
-    debug_return_int(rval);
+    debug_return_int(ret);
 }
 
 /*
@@ -174,17 +159,18 @@ done:
 int
 check_user(int validated, int mode)
 {
-    struct passwd *auth_pw;
-    int rval = -1;
-    debug_decl(check_user, SUDOERS_DEBUG_AUTH)
+    struct getpass_closure closure = { TS_ERROR };
+    int ret = -1;
+    bool exempt = false;
+    debug_decl(check_user, SUDOERS_DEBUG_AUTH);
 
     /*
      * Init authentication system regardless of whether we need a password.
      * Required for proper PAM session support.
      */
-    if ((auth_pw = get_authpw(mode)) == NULL)
+    if ((closure.auth_pw = get_authpw(mode)) == NULL)
 	goto done;
-    if (sudo_auth_init(auth_pw) == -1)
+    if (sudo_auth_init(closure.auth_pw) == -1)
 	goto done;
 
     /*
@@ -192,7 +178,11 @@ check_user(int validated, int mode)
      * If the user is not changing uid/gid, no need for a password.
      */
     if (!def_authenticate || user_is_exempt()) {
-	rval = true;
+	sudo_debug_printf(SUDO_DEBUG_INFO, "%s: %s", __func__,
+	    !def_authenticate ? "authentication disabled" :
+	    "user exempt from authentication");
+	exempt = true;
+	ret = true;
 	goto done;
     }
     if (user_uid == 0 || (user_uid == runas_pw->pw_uid &&
@@ -204,18 +194,35 @@ check_user(int validated, int mode)
 	if (runas_privs == NULL && runas_limitprivs == NULL)
 #endif
 	{
-	    rval = true;
+	    sudo_debug_printf(SUDO_DEBUG_INFO,
+		"%s: user running command as self", __func__);
+	    ret = true;
 	    goto done;
 	}
     }
 
-    rval = check_user_interactive(validated, mode, auth_pw);
+    ret = check_user_interactive(validated, mode, &closure);
 
 done:
-    sudo_auth_cleanup(auth_pw);
-    sudo_pw_delref(auth_pw);
+    if (ret == true) {
+	/* The approval function may disallow a user post-authentication. */
+	ret = sudo_auth_approval(closure.auth_pw, validated, exempt);
 
-    debug_return_int(rval);
+	/*
+	 * Only update time stamp if user validated and was approved.
+	 * Failure to update the time stamp is not a fatal error.
+	 */
+	if (ret == true && closure.tstat != TS_ERROR) {
+	    if (ISSET(validated, VALIDATE_SUCCESS))
+		(void)timestamp_update(closure.cookie, closure.auth_pw);
+	}
+    }
+    timestamp_close(closure.cookie);
+    sudo_auth_cleanup(closure.auth_pw, !ISSET(validated, VALIDATE_SUCCESS));
+    if (closure.auth_pw != NULL)
+	sudo_pw_delref(closure.auth_pw);
+
+    debug_return_int(ret);
 }
 
 /*
@@ -225,12 +232,13 @@ done:
 static bool
 display_lecture(int status)
 {
-    FILE *fp;
-    char buf[BUFSIZ];
-    ssize_t nread;
     struct sudo_conv_message msg;
     struct sudo_conv_reply repl;
-    debug_decl(lecture, SUDOERS_DEBUG_AUTH)
+    char buf[BUFSIZ];
+    struct stat sb;
+    ssize_t nread;
+    int fd;
+    debug_decl(lecture, SUDOERS_DEBUG_AUTH);
 
     if (def_lecture == never ||
 	(def_lecture == once && already_lectured(status)))
@@ -239,24 +247,46 @@ display_lecture(int status)
     memset(&msg, 0, sizeof(msg));
     memset(&repl, 0, sizeof(repl));
 
-    if (def_lecture_file && (fp = fopen(def_lecture_file, "r")) != NULL) {
-	while ((nread = fread(buf, sizeof(char), sizeof(buf) - 1, fp)) != 0) {
-	    buf[nread] = '\0';
-	    msg.msg_type = SUDO_CONV_ERROR_MSG;
-	    msg.msg = buf;
-	    sudo_conv(1, &msg, &repl, NULL);
+    if (def_lecture_file) {
+	fd = open(def_lecture_file, O_RDONLY|O_NONBLOCK);
+	if (fd != -1 && fstat(fd, &sb) == 0) {
+	    if (S_ISREG(sb.st_mode)) {
+		(void) fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) & ~O_NONBLOCK);
+		while ((nread = read(fd, buf, sizeof(buf) - 1)) > 0) {
+		    buf[nread] = '\0';
+		    msg.msg_type = SUDO_CONV_ERROR_MSG|SUDO_CONV_PREFER_TTY;
+		    msg.msg = buf;
+		    sudo_conv(1, &msg, &repl, NULL);
+		}
+		close(fd);
+		if (nread == -1) {
+		    log_warning(SLOG_RAW_MSG,
+			N_("error reading lecture file %s"), def_lecture_file);
+		    debug_return_bool(false);
+		}
+		debug_return_bool(true);
+	    } else {
+		log_warningx(SLOG_RAW_MSG,
+		    N_("ignoring lecture file %s: not a regular file"),
+		    def_lecture_file);
+	    }
+	} else {
+	    log_warning(SLOG_RAW_MSG|SLOG_NO_STDERR, N_("unable to open %s"),
+		def_lecture_file);
 	}
-	fclose(fp);
-    } else {
-	msg.msg_type = SUDO_CONV_ERROR_MSG;
-	msg.msg = _("\n"
-	    "We trust you have received the usual lecture from the local System\n"
-	    "Administrator. It usually boils down to these three things:\n\n"
-	    "    #1) Respect the privacy of others.\n"
-	    "    #2) Think before you type.\n"
-	    "    #3) With great power comes great responsibility.\n\n");
-	sudo_conv(1, &msg, &repl, NULL);
+	if (fd != -1)
+	    close(fd);
     }
+
+    /* Default sudo lecture. */
+    msg.msg_type = SUDO_CONV_ERROR_MSG|SUDO_CONV_PREFER_TTY;
+    msg.msg = _("\n"
+	"We trust you have received the usual lecture from the local System\n"
+	"Administrator. It usually boils down to these three things:\n\n"
+	"    #1) Respect the privacy of others.\n"
+	"    #2) Think before you type.\n"
+	"    #3) With great power comes great responsibility.\n\n");
+    sudo_conv(1, &msg, &repl, NULL);
     debug_return_bool(true);
 }
 
@@ -266,12 +296,12 @@ display_lecture(int status)
 bool
 user_is_exempt(void)
 {
-    bool rval = false;
-    debug_decl(user_is_exempt, SUDOERS_DEBUG_AUTH)
+    bool ret = false;
+    debug_decl(user_is_exempt, SUDOERS_DEBUG_AUTH);
 
     if (def_exempt_group)
-	rval = user_in_group(sudo_user.pw, def_exempt_group);
-    debug_return_bool(rval);
+	ret = user_in_group(sudo_user.pw, def_exempt_group);
+    debug_return_bool(ret);
 }
 
 /*
@@ -283,7 +313,7 @@ static struct passwd *
 get_authpw(int mode)
 {
     struct passwd *pw = NULL;
-    debug_decl(get_authpw, SUDOERS_DEBUG_AUTH)
+    debug_decl(get_authpw, SUDOERS_DEBUG_AUTH);
 
     if (ISSET(mode, (MODE_CHECK|MODE_LIST))) {
 	/* In list mode we always prompt for the user's password. */
@@ -315,4 +345,29 @@ get_authpw(int mode)
     }
 
     debug_return_ptr(pw);
+}
+
+/*
+ * Returns true if the specified shell is allowed by /etc/shells, else false.
+ */
+bool
+check_user_shell(const struct passwd *pw)
+{
+    const char *shell;
+    debug_decl(check_user_shell, SUDOERS_DEBUG_AUTH);
+
+    if (!def_runas_check_shell)
+	debug_return_bool(true);
+
+    sudo_debug_printf(SUDO_DEBUG_INFO,
+	"%s: checking /etc/shells for %s", __func__, pw->pw_shell);
+
+    setusershell();
+    while ((shell = getusershell()) != NULL) {
+	if (strcmp(shell, pw->pw_shell) == 0)
+	    debug_return_bool(true);
+    }
+    endusershell();
+
+    debug_return_bool(false);
 }

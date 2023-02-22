@@ -1,7 +1,9 @@
 /* pathnames.h.  Generated from pathnames.h.in by configure.  */
 /*
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 1996, 1998, 1999, 2001, 2004, 2005, 2007-2014
- *	Todd C. Miller <Todd.Miller@courtesan.com>.
+ *	Todd C. Miller <Todd.Miller@sudo.ws>.
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -37,11 +39,11 @@
 #endif /* _PATH_DEV */
 
 #ifndef _PATH_TTY
-# define _PATH_TTY		"/dev/tty"
+# define _PATH_TTY		_PATH_DEV "tty"
 #endif /* _PATH_TTY */
 
 #ifndef _PATH_DEVNULL
-# define _PATH_DEVNULL		"/dev/null"
+# define _PATH_DEVNULL		_PATH_DEV "null"
 #endif /* _PATH_DEVNULL */
 
 #ifndef _PATH_DEFPATH
@@ -71,8 +73,32 @@
 #endif /* _PATH_SUDOERS */
 
 /*
+ * NOTE: _PATH_CVTSUDOERS_CONF is usually overridden by the Makefile.
+ */
+#ifndef _PATH_CVTSUDOERS_CONF
+# define _PATH_CVTSUDOERS_CONF		"/etc/cvtsudoers.conf"
+#endif /* _PATH_CVTSUDOERS_CONF */
+
+/*
+ * NOTE: _PATH_SUDO_LOGSRVD_CONF is usually overridden by the Makefile.
+ */
+#ifndef _PATH_SUDO_LOGSRVD_CONF
+# define _PATH_SUDO_LOGSRVD_CONF	"/etc/sudo_logsrvd.conf"
+#endif /* _PATH_SUDO_LOGSRVD_CONF */
+
+/*
  * The following paths are controlled via the configure script.
  */
+
+/*
+ * Where sudo_logsrvd stores its pid file files.  Defaults to
+ * /var/run/sudo/sudo_logsrvd.pid, /var/db/sudo/sudo_logsrvd.pid,
+ * /var/lib/sudo/sudo_logsrvd.pid, /var/adm/sudo/sudo_logsrvd.pid or
+ * /usr/adm/sudo/sudo_logsrvd.pid depending on what exists on the system.
+ */
+#ifndef _PATH_SUDO_LOGSRVD_PID
+# define _PATH_SUDO_LOGSRVD_PID "/var/db/sudo/sudo_logsrvd.pid"
+#endif /* _PATH_SUDO_LOGSRVD_PID */
 
 /*
  * Where to store the time stamp files.  Defaults to /var/run/sudo/ts,
@@ -101,6 +127,14 @@
 #endif /* _PATH_SUDO_IO_LOGDIR */
 
 /*
+ * Where to put the audit and other log files.  Defaults to /var/log,
+ * /var/adm or /usr/adm depending on what exists.
+ */
+#ifndef _PATH_SUDO_LOGDIR
+# define _PATH_SUDO_LOGDIR "/var/log"
+#endif /* _PATH_SUDO_LOGDIR */
+
+/*
  * Where to put the sudo log file when logging to a file.  Defaults to
  * /var/log/sudo.log if /var/log exists, else /var/adm/sudo.log.
  */
@@ -113,7 +147,7 @@
 #endif /* _PATH_SUDO_SENDMAIL */
 
 #ifndef _PATH_SUDO_NOEXEC
-/* # undef _PATH_SUDO_NOEXEC */
+# define _PATH_SUDO_NOEXEC NULL
 #endif /* _PATH_SUDO_NOEXEC */
 
 #ifndef _PATH_SUDO_ASKPASS
@@ -123,6 +157,10 @@
 #ifndef _PATH_SUDO_PLUGIN_DIR
 # define _PATH_SUDO_PLUGIN_DIR "/usr/local/libexec/sudo/"
 #endif /* _PATH_SUDO_PLUGIN_DIR */
+
+#ifndef _PATH_SUDO_DEVSEARCH
+# define _PATH_SUDO_DEVSEARCH _PATH_DEV "pts:" _PATH_DEV "vt:" _PATH_DEV "term:" _PATH_DEV "zcons:" _PATH_DEV "pty:" _PATH_DEV "" 
+#endif /* _PATH_SUDO_DEVSEARCH */
 
 #ifndef _PATH_VI
 # define _PATH_VI "/usr/bin/vi"

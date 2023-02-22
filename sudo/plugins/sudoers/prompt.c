@@ -1,6 +1,8 @@
 /*
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 1993-1996,1998-2005, 2007-2015
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ *	Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,19 +21,17 @@
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <pwd.h>
-#include <grp.h>
 
 #include "sudoers.h"
 
@@ -46,7 +46,7 @@ expand_prompt(const char *old_prompt, const char *auth_user)
     int subst;
     const char *p;
     char *np, *new_prompt, *endp;
-    debug_decl(expand_prompt, SUDOERS_DEBUG_AUTH)
+    debug_decl(expand_prompt, SUDOERS_DEBUG_AUTH);
 
     /* How much space do we need to malloc for the prompt? */
     subst = 0;

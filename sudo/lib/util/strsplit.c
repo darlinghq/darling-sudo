@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2015 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,14 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
-
-#include <sys/types.h>
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <grp.h>
 
 #include "sudo_compat.h"
 #include "sudo_debug.h"
@@ -35,7 +35,7 @@ const char *
 sudo_strsplit_v1(const char *str, const char *endstr, const char *sep, const char **last)
 {
     const char *cp, *s;
-    debug_decl(sudo_strsplit, SUDO_DEBUG_UTIL)
+    debug_decl(sudo_strsplit, SUDO_DEBUG_UTIL);
 
     /* If no str specified, use last ptr (if any). */
     if (str == NULL)

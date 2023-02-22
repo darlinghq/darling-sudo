@@ -1,4 +1,6 @@
 /*
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2014, Oracle and/or its affiliates.
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -14,15 +16,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
 #ifdef HAVE_SOLARIS_AUDIT
 
-#include <sys/types.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
+#include <unistd.h>
 
 #include <bsm/adt.h>
 #include <bsm/adt_event.h>
@@ -32,12 +40,14 @@
 
 static adt_session_data_t *ah;		/* audit session handle */
 static adt_event_data_t	*event;		/* event to be generated */
-static char		cwd[MAXPATHLEN];
+static char		cwd[PATH_MAX];
 static char		cmdpath[PATH_MAX];
 
 static int
-adt_sudo_common(int argc, char *argv[])
+adt_sudo_common(char *const argv[])
 {
+	int argc;
+
 	if (adt_start_session(&ah, NULL, ADT_USE_PROC_DATA) != 0) {
 		log_warning(SLOG_NO_STDERR, "adt_start_session");
 		return -1;
@@ -60,7 +70,7 @@ adt_sudo_common(int argc, char *argv[])
 			    user_cmnd);
 		}
 	} else {
-		if (strlcpy(cmdpath, (const char *)argv[0],
+		if (strlcpy(cmdpath, argv[0],
 		    sizeof(cmdpath)) >= sizeof(cmdpath)) {
 			log_warningx(SLOG_NO_STDERR,
 			    _("truncated audit path argv[0]: %s"),
@@ -68,9 +78,12 @@ adt_sudo_common(int argc, char *argv[])
 		}
 	}
 
+	for (argc = 0; argv[argc] != NULL; argc++)
+		continue;
+
 	event->adt_sudo.cmdpath = cmdpath;
 	event->adt_sudo.argc = argc - 1;
-	event->adt_sudo.argv = &argv[1];
+	event->adt_sudo.argv = (char **)&argv[1];
 	event->adt_sudo.envp = env_get();
 
 	return 0;
@@ -81,11 +94,11 @@ adt_sudo_common(int argc, char *argv[])
  * Returns 0 on success or -1 on error.
  */
 int
-solaris_audit_success(int argc, char *argv[])
+solaris_audit_success(char *const argv[])
 {
 	int rc = -1;
 
-	if (adt_sudo_common(argc, argv) != 0) {
+	if (adt_sudo_common(argv) != 0) {
 		return -1;
 	}
 	if (adt_put_event(event, ADT_SUCCESS, ADT_SUCCESS) != 0) {
@@ -103,27 +116,24 @@ solaris_audit_success(int argc, char *argv[])
  * Returns 0 on success or -1 on error.
  */
 int
-solaris_audit_failure(int argc, char *argv[], char const *const fmt, va_list ap)
+solaris_audit_failure(char *const argv[], const char *errmsg)
 {
 	int rc = -1;
 
-	if (adt_sudo_common(argc, argv) != 0) {
+	if (adt_sudo_common(argv) != 0) {
 		return -1;
 	}
-	if (vasprintf(&event->adt_sudo.errmsg, fmt, ap) == -1) {
-		log_warning(SLOG_NO_STDERR,
-		    _("audit_failure message too long"));
-	}
+
+	event->adt_sudo.errmsg = (char *)errmsg;
 	if (adt_put_event(event, ADT_FAILURE, ADT_FAIL_VALUE_PROGRAM) != 0) {
 		log_warning(SLOG_NO_STDERR, "adt_put_event(ADT_FAILURE)");
 	} else {
 		rc = 0;
 	}
-	free(event->adt_sudo.errmsg);
 	adt_free_event(event);
 	(void) adt_end_session(ah);
 
-	return 0;
+	return rc;
 }
 
 #endif /* HAVE_SOLARIS_AUDIT */

@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2011-2014 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2011-2014 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +18,12 @@
 
 #ifndef SUDO_CONF_H
 #define SUDO_CONF_H
+
+#ifdef HAVE_STDBOOL_H
+# include <stdbool.h>
+#else
+# include "compat/stdbool.h"
+#endif
 
 #include "sudo_queue.h"
 
@@ -51,31 +59,37 @@ struct sudo_conf_debug {
 TAILQ_HEAD(sudo_conf_debug_list, sudo_conf_debug);
 
 /* Read main sudo.conf file. */
-__dso_public int sudo_conf_read_v1(const char *conf_file, int conf_types);
+sudo_dso_public int sudo_conf_read_v1(const char *conf_file, int conf_types);
 #define sudo_conf_read(_a, _b) sudo_conf_read_v1((_a), (_b))
 
 /* Accessor functions. */
-__dso_public const char *sudo_conf_askpass_path_v1(void);
-__dso_public const char *sudo_conf_sesh_path_v1(void);
-__dso_public const char *sudo_conf_noexec_path_v1(void);
-__dso_public const char *sudo_conf_plugin_dir_path_v1(void);
-__dso_public struct sudo_conf_debug_list *sudo_conf_debugging_v1(void);
-__dso_public struct sudo_conf_debug_file_list *sudo_conf_debug_files_v1(const char *progname);
-__dso_public struct plugin_info_list *sudo_conf_plugins_v1(void);
-__dso_public bool sudo_conf_disable_coredump_v1(void);
-__dso_public bool sudo_conf_probe_interfaces_v1(void);
-__dso_public int sudo_conf_group_source_v1(void);
-__dso_public int sudo_conf_max_groups_v1(void);
+sudo_dso_public const char *sudo_conf_askpass_path_v1(void);
+sudo_dso_public const char *sudo_conf_sesh_path_v1(void);
+sudo_dso_public const char *sudo_conf_noexec_path_v1(void);
+sudo_dso_public const char *sudo_conf_plugin_dir_path_v1(void);
+sudo_dso_public const char *sudo_conf_devsearch_path_v1(void);
+sudo_dso_public struct sudo_conf_debug_list *sudo_conf_debugging_v1(void);
+sudo_dso_public struct sudo_conf_debug_file_list *sudo_conf_debug_files_v1(const char *progname);
+sudo_dso_public struct plugin_info_list *sudo_conf_plugins_v1(void);
+sudo_dso_public bool sudo_conf_disable_coredump_v1(void);
+sudo_dso_public bool sudo_conf_developer_mode_v1(void);
+sudo_dso_public bool sudo_conf_probe_interfaces_v1(void);
+sudo_dso_public int sudo_conf_group_source_v1(void);
+sudo_dso_public int sudo_conf_max_groups_v1(void);
+sudo_dso_public void sudo_conf_clear_paths_v1(void);
 #define sudo_conf_askpass_path() sudo_conf_askpass_path_v1()
 #define sudo_conf_sesh_path() sudo_conf_sesh_path_v1()
 #define sudo_conf_noexec_path() sudo_conf_noexec_path_v1()
 #define sudo_conf_plugin_dir_path() sudo_conf_plugin_dir_path_v1()
+#define sudo_conf_devsearch_path() sudo_conf_devsearch_path_v1()
 #define sudo_conf_debugging() sudo_conf_debugging_v1()
 #define sudo_conf_debug_files(_a) sudo_conf_debug_files_v1((_a))
 #define sudo_conf_plugins() sudo_conf_plugins_v1()
 #define sudo_conf_disable_coredump() sudo_conf_disable_coredump_v1()
+#define sudo_conf_developer_mode() sudo_conf_developer_mode_v1()
 #define sudo_conf_probe_interfaces() sudo_conf_probe_interfaces_v1()
 #define sudo_conf_group_source() sudo_conf_group_source_v1()
 #define sudo_conf_max_groups() sudo_conf_max_groups_v1()
+#define sudo_conf_clear_paths() sudo_conf_clear_paths_v1()
 
 #endif /* SUDO_CONF_H */

@@ -1,3 +1,5 @@
+/* generated file, do not edit */
+
 static struct def_values def_data_lecture[] = {
     { "never", never },
     { "once", once },
@@ -21,17 +23,38 @@ static struct def_values def_data_verifypw[] = {
     { NULL, 0 },
 };
 
+static struct def_values def_data_fdexec[] = {
+    { "never", never },
+    { "digest_only", digest_only },
+    { "always", always },
+    { NULL, 0 },
+};
+
+static struct def_values def_data_timestamp_type[] = {
+    { "global", global },
+    { "ppid", ppid },
+    { "tty", tty },
+    { "kernel", kernel },
+    { NULL, 0 },
+};
+
+static struct def_values def_data_log_format[] = {
+    { "sudo", sudo },
+    { "json", json },
+    { NULL, 0 },
+};
+
 struct sudo_defs_types sudo_defs_table[] = {
     {
 	"syslog", T_LOGFAC|T_BOOL,
 	N_("Syslog facility if syslog is being used for logging: %s"),
 	NULL,
     }, {
-	"syslog_goodpri", T_LOGPRI,
+	"syslog_goodpri", T_LOGPRI|T_BOOL,
 	N_("Syslog priority to use when user authenticates successfully: %s"),
 	NULL,
     }, {
-	"syslog_badpri", T_LOGPRI,
+	"syslog_badpri", T_LOGPRI|T_BOOL,
 	N_("Syslog priority to use when user authenticates unsuccessfully: %s"),
 	NULL,
     }, {
@@ -159,11 +182,11 @@ struct sudo_defs_types sudo_defs_table[] = {
 	N_("Length at which to wrap log file lines (0 for no wrap): %u"),
 	NULL,
     }, {
-	"timestamp_timeout", T_FLOAT|T_BOOL,
+	"timestamp_timeout", T_TIMESPEC|T_BOOL,
 	N_("Authentication timestamp timeout: %.1f minutes"),
 	NULL,
     }, {
-	"passwd_timeout", T_FLOAT|T_BOOL,
+	"passwd_timeout", T_TIMESPEC|T_BOOL,
 	N_("Password prompt timeout: %.1f minutes"),
 	NULL,
     }, {
@@ -248,7 +271,7 @@ struct sudo_defs_types sudo_defs_table[] = {
 	def_data_verifypw,
     }, {
 	"noexec", T_FLAG,
-	N_("Preload the dummy exec functions contained in the sudo_noexec library"),
+	N_("Preload the sudo_noexec library which replaces the exec functions"),
 	NULL,
     }, {
 	"ignore_local_sudoers", T_FLAG,
@@ -260,7 +283,7 @@ struct sudo_defs_types sudo_defs_table[] = {
 	NULL,
     }, {
 	"closefrom_override", T_FLAG,
-	N_("If set, users may override the value of `closefrom' with the -C option"),
+	N_("If set, users may override the value of \"closefrom\" with the -C option"),
 	NULL,
     }, {
 	"setenv", T_FLAG,
@@ -272,7 +295,7 @@ struct sudo_defs_types sudo_defs_table[] = {
 	NULL,
     }, {
 	"env_check", T_LIST|T_BOOL,
-	N_("Environment variables to check for sanity:"),
+	N_("Environment variables to check for safety:"),
 	NULL,
     }, {
 	"env_delete", T_LIST|T_BOOL,
@@ -293,6 +316,10 @@ struct sudo_defs_types sudo_defs_table[] = {
     }, {
 	"env_file", T_STR|T_PATH|T_BOOL,
 	N_("Path to the sudo-specific environment file: %s"),
+	NULL,
+    }, {
+	"restricted_env_file", T_STR|T_PATH|T_BOOL,
+	N_("Path to the restricted sudo-specific environment file: %s"),
 	NULL,
     }, {
 	"sudoers_locale", T_STR,
@@ -352,11 +379,11 @@ struct sudo_defs_types sudo_defs_table[] = {
 	NULL,
     }, {
 	"privs", T_STR,
-	N_("Set of permitted privileges"),
+	N_("Set of permitted privileges: %s"),
 	NULL,
     }, {
 	"limitprivs", T_STR,
-	N_("Set of limit privileges"),
+	N_("Set of limit privileges: %s"),
 	NULL,
     }, {
 	"exec_background", T_FLAG,
@@ -364,11 +391,11 @@ struct sudo_defs_types sudo_defs_table[] = {
 	NULL,
     }, {
 	"pam_service", T_STR,
-	N_("PAM service name to use"),
+	N_("PAM service name to use: %s"),
 	NULL,
     }, {
 	"pam_login_service", T_STR,
-	N_("PAM service name to use for login shells"),
+	N_("PAM service name to use for login shells: %s"),
 	NULL,
     }, {
 	"pam_setcred", T_FLAG,
@@ -379,8 +406,12 @@ struct sudo_defs_types sudo_defs_table[] = {
 	N_("Create a new PAM session for the command to run in"),
 	NULL,
     }, {
-	"maxseq", T_UINT,
-	N_("Maximum I/O log sequence number: %u"),
+	"pam_acct_mgmt", T_FLAG,
+	N_("Perform PAM account validation management"),
+	NULL,
+    }, {
+	"maxseq", T_STR,
+	N_("Maximum I/O log sequence number: %s"),
 	NULL,
     }, {
 	"use_netgroups", T_FLAG,
@@ -401,6 +432,146 @@ struct sudo_defs_types sudo_defs_table[] = {
     }, {
 	"netgroup_tuple", T_FLAG,
 	N_("Match netgroups based on the entire tuple: user, host and domain"),
+	NULL,
+    }, {
+	"ignore_audit_errors", T_FLAG,
+	N_("Allow commands to be run even if sudo cannot write to the audit log"),
+	NULL,
+    }, {
+	"ignore_iolog_errors", T_FLAG,
+	N_("Allow commands to be run even if sudo cannot write to the I/O log"),
+	NULL,
+    }, {
+	"ignore_logfile_errors", T_FLAG,
+	N_("Allow commands to be run even if sudo cannot write to the log file"),
+	NULL,
+    }, {
+	"match_group_by_gid", T_FLAG,
+	N_("Resolve groups in sudoers and match on the group ID, not the name"),
+	NULL,
+    }, {
+	"syslog_maxlen", T_UINT,
+	N_("Log entries larger than this value will be split into multiple syslog messages: %u"),
+	NULL,
+    }, {
+	"iolog_user", T_STR|T_BOOL,
+	N_("User that will own the I/O log files: %s"),
+	NULL,
+    }, {
+	"iolog_group", T_STR|T_BOOL,
+	N_("Group that will own the I/O log files: %s"),
+	NULL,
+    }, {
+	"iolog_mode", T_MODE,
+	N_("File mode to use for the I/O log files: 0%o"),
+	NULL,
+    }, {
+	"fdexec", T_TUPLE|T_BOOL,
+	N_("Execute commands by file descriptor instead of by path: %s"),
+	def_data_fdexec,
+    }, {
+	"ignore_unknown_defaults", T_FLAG,
+	N_("Ignore unknown Defaults entries in sudoers instead of producing a warning"),
+	NULL,
+    }, {
+	"command_timeout", T_TIMEOUT|T_BOOL,
+	N_("Time in seconds after which the command will be terminated: %u"),
+	NULL,
+    }, {
+	"user_command_timeouts", T_FLAG,
+	N_("Allow the user to specify a timeout on the command line"),
+	NULL,
+    }, {
+	"iolog_flush", T_FLAG,
+	N_("Flush I/O log data to disk immediately instead of buffering it"),
+	NULL,
+    }, {
+	"syslog_pid", T_FLAG,
+	N_("Include the process ID when logging via syslog"),
+	NULL,
+    }, {
+	"timestamp_type", T_TUPLE,
+	N_("Type of authentication timestamp record: %s"),
+	def_data_timestamp_type,
+    }, {
+	"authfail_message", T_STR,
+	N_("Authentication failure message: %s"),
+	NULL,
+    }, {
+	"case_insensitive_user", T_FLAG,
+	N_("Ignore case when matching user names"),
+	NULL,
+    }, {
+	"case_insensitive_group", T_FLAG,
+	N_("Ignore case when matching group names"),
+	NULL,
+    }, {
+	"log_allowed", T_FLAG,
+	N_("Log when a command is allowed by sudoers"),
+	NULL,
+    }, {
+	"log_denied", T_FLAG,
+	N_("Log when a command is denied by sudoers"),
+	NULL,
+    }, {
+	"log_servers", T_LIST|T_BOOL,
+	N_("Sudo log server(s) to connect to with optional port"),
+	NULL,
+    }, {
+	"log_server_timeout", T_TIMEOUT|T_BOOL,
+	N_("Sudo log server timeout in seconds: %u"),
+	NULL,
+    }, {
+	"log_server_keepalive", T_FLAG,
+	N_("Enable SO_KEEPALIVE socket option on the socket connected to the logserver"),
+	NULL,
+    }, {
+	"log_server_cabundle", T_STR|T_BOOL|T_PATH,
+	N_("Path to the audit server's CA bundle file: %s"),
+	NULL,
+    }, {
+	"log_server_peer_cert", T_STR|T_BOOL|T_PATH,
+	N_("Path to the sudoers certificate file: %s"),
+	NULL,
+    }, {
+	"log_server_peer_key", T_STR|T_BOOL|T_PATH,
+	N_("Path to the sudoers private key file: %s"),
+	NULL,
+    }, {
+	"log_server_verify", T_FLAG,
+	N_("Verify that the log server's certificate is valid"),
+	NULL,
+    }, {
+	"runas_allow_unknown_id", T_FLAG,
+	N_("Allow the use of unknown runas user and/or group ID"),
+	NULL,
+    }, {
+	"runas_check_shell", T_FLAG,
+	N_("Only permit running commands as a user with a valid shell"),
+	NULL,
+    }, {
+	"pam_ruser", T_FLAG,
+	N_("Set the pam remote user to the user running sudo"),
+	NULL,
+    }, {
+	"pam_rhost", T_FLAG,
+	N_("Set the pam remote host to the local host name"),
+	NULL,
+    }, {
+	"runcwd", T_STR|T_BOOL|T_CHPATH,
+	N_("Working directory to change to before executing the command: %s"),
+	NULL,
+    }, {
+	"runchroot", T_STR|T_BOOL|T_CHPATH,
+	N_("Root directory to change to before executing the command: %s"),
+	NULL,
+    }, {
+	"log_format", T_TUPLE,
+	N_("The format of logs to produce: %s"),
+	def_data_log_format,
+    }, {
+	"selinux", T_FLAG,
+	N_("Enable SELinux RBAC support"),
 	NULL,
     }, {
 	NULL, 0, NULL

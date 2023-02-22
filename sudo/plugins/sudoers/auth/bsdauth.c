@@ -1,6 +1,8 @@
 /*
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2000-2005, 2007-2008, 2010-2015
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ *	Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +21,11 @@
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
 #ifdef HAVE_BSD_AUTH_H
@@ -26,12 +33,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRING_H */
+#include <string.h>
 #include <unistd.h>
 #include <ctype.h>
 #include <pwd.h>
@@ -56,7 +58,7 @@ int
 bsdauth_init(struct passwd *pw, sudo_auth *auth)
 {
     static struct bsdauth_state state;
-    debug_decl(bsdauth_init, SUDOERS_DEBUG_AUTH)
+    debug_decl(bsdauth_init, SUDOERS_DEBUG_AUTH);
 
     /* Get login class based on auth user, which may not be invoking user. */
     if (pw->pw_class && *pw->pw_class)
@@ -75,7 +77,7 @@ bsdauth_init(struct passwd *pw, sudo_auth *auth)
 	debug_return_int(AUTH_FATAL);
     }
 
-    /* XXX - maybe sanity check the auth style earlier? */
+    /* XXX - maybe check the auth style earlier? */
     login_style = login_getstyle(state.lc, login_style, "auth-sudo");
     if (login_style == NULL) {
 	log_warningx(0, N_("invalid authentication type"));
@@ -104,9 +106,9 @@ bsdauth_verify(struct passwd *pw, char *prompt, sudo_auth *auth, struct sudo_con
     char *s;
     size_t len;
     int authok = 0;
-    sigaction_t sa, osa;
+    struct sigaction sa, osa;
     auth_session_t *as = ((struct bsdauth_state *) auth->data)->as;
-    debug_decl(bsdauth_verify, SUDOERS_DEBUG_AUTH)
+    debug_decl(bsdauth_verify, SUDOERS_DEBUG_AUTH);
 
     /* save old signal handler */
     sigemptyset(&sa.sa_mask);
@@ -121,9 +123,9 @@ bsdauth_verify(struct passwd *pw, char *prompt, sudo_auth *auth, struct sudo_con
      * S/Key.
      */
     if ((s = auth_challenge(as)) == NULL) {
-	pass = auth_getpass(prompt, def_passwd_timeout * 60, SUDO_CONV_PROMPT_ECHO_OFF, callback);
+	pass = auth_getpass(prompt, SUDO_CONV_PROMPT_ECHO_OFF, callback);
     } else {
-	pass = auth_getpass(s, def_passwd_timeout * 60, SUDO_CONV_PROMPT_ECHO_OFF, callback);
+	pass = auth_getpass(s, SUDO_CONV_PROMPT_ECHO_OFF, callback);
 	if (pass && *pass == '\0') {
 	    if ((prompt = strrchr(s, '\n')))
 		prompt++;
@@ -142,16 +144,14 @@ bsdauth_verify(struct passwd *pw, char *prompt, sudo_auth *auth, struct sudo_con
 		debug_return_int(AUTH_FATAL);
 	    }
 	    free(pass);
-	    pass = auth_getpass(s, def_passwd_timeout * 60,
-		SUDO_CONV_PROMPT_ECHO_ON, callback);
+	    pass = auth_getpass(s, SUDO_CONV_PROMPT_ECHO_ON, callback);
 	    free(s);
 	}
     }
 
     if (pass) {
 	authok = auth_userresponse(as, pass, 1);
-	memset_s(pass, SUDO_CONV_REPL_MAX, 0, strlen(pass));
-	free(pass);
+	freezero(pass, strlen(pass));
     }
 
     /* restore old signal handler */
@@ -169,10 +169,26 @@ bsdauth_verify(struct passwd *pw, char *prompt, sudo_auth *auth, struct sudo_con
 }
 
 int
-bsdauth_cleanup(struct passwd *pw, sudo_auth *auth)
+bsdauth_approval(struct passwd *pw, sudo_auth *auth, bool exempt)
 {
     struct bsdauth_state *state = auth->data;
-    debug_decl(bsdauth_cleanup, SUDOERS_DEBUG_AUTH)
+    debug_decl(bsdauth_approval, SUDOERS_DEBUG_AUTH);
+
+    if (auth_approval(state->as, state->lc, pw->pw_name, "auth-sudo") == 0) {
+	if (auth_getstate(state->as) & AUTH_EXPIRED)
+	    log_warningx(0, "%s", N_("your account has expired"));
+	else
+	    log_warningx(0, "%s", N_("approval failed"));
+	debug_return_int(AUTH_FAILURE);
+    }
+    debug_return_int(AUTH_SUCCESS);
+}
+
+int
+bsdauth_cleanup(struct passwd *pw, sudo_auth *auth, bool force)
+{
+    struct bsdauth_state *state = auth->data;
+    debug_decl(bsdauth_cleanup, SUDOERS_DEBUG_AUTH);
 
     if (state != NULL) {
 	auth_close(state->as);

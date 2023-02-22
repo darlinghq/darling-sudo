@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2008-2014 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Copyright (c) 2008-2014 Todd C. Miller <Todd.Miller@sudo.ws>
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -54,17 +56,11 @@
 
 #ifndef HAVE_GLOB
 
-#include <sys/types.h>
 #include <sys/stat.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <unistd.h>
 #if defined(HAVE_STDINT_H)
 # include <stdint.h>
@@ -135,9 +131,6 @@ typedef char Char;
 #define	GLOB_LIMIT_STAT		2048
 #define	GLOB_LIMIT_READDIR	16384
 
-/* Limit of recursion during matching attempts. */
-#define	GLOB_LIMIT_RECUR	64
-
 struct glob_lim {
 	size_t	glim_malloc;
 	size_t	glim_stat;
@@ -145,7 +138,7 @@ struct glob_lim {
 };
 
 static int	 compare(const void *, const void *);
-static int	 g_Ctoc(const Char *, char *, unsigned int);
+static int	 g_Ctoc(const Char *, char *, size_t);
 static int	 g_lstat(Char *, struct stat *, glob_t *);
 static DIR	*g_opendir(Char *, glob_t *);
 static Char	*g_strchr(const Char *, int);
@@ -164,7 +157,7 @@ static const Char *
 static int	 globexp1(const Char *, glob_t *, struct glob_lim *);
 static int	 globexp2(const Char *, const Char *, glob_t *,
 		    struct glob_lim *);
-static int	 match(Char *, Char *, Char *, int);
+static int	 match(Char *, Char *, Char *);
 #ifdef DEBUG
 static void	 qprintf(const char *, Char *);
 #endif
@@ -189,9 +182,8 @@ sudo_glob(const char *pattern, int flags, int (*errfunc)(const char *, int),
 	pglob->gl_errfunc = errfunc;
 	pglob->gl_matchc = 0;
 
-	if (pglob->gl_offs < 0 || pglob->gl_pathc < 0 ||
-	    pglob->gl_offs >= INT_MAX || pglob->gl_pathc >= INT_MAX ||
-	    pglob->gl_pathc >= INT_MAX - pglob->gl_offs - 1)
+	if (pglob->gl_offs >= SSIZE_MAX || pglob->gl_pathc >= SSIZE_MAX ||
+	    pglob->gl_pathc >= SSIZE_MAX - pglob->gl_offs - 1)
 		return GLOB_NOSPACE;
 
 	if (strnlen(pattern, PATH_MAX) == PATH_MAX)
@@ -312,7 +304,7 @@ globexp2(const Char *ptr, const Char *pattern, glob_t *pglob,
 				i--;
 				break;
 			}
-			/* FALLTHROUGH */
+			FALLTHROUGH;
 		case COMMA:
 			if (i && *pm == COMMA)
 				break;
@@ -458,7 +450,8 @@ static int
 glob0(const Char *pattern, glob_t *pglob, struct glob_lim *limitp)
 {
 	const Char *qpatnext;
-	int c, err, oldpathc;
+	int c, err;
+	size_t oldpathc;
 	Char *bufnext, patbuf[PATH_MAX];
 
 	qpatnext = globtilde(pattern, patbuf, PATH_MAX, pglob);
@@ -699,7 +692,7 @@ glob3(Char *pathbuf, Char *pathbuf_last, Char *pathend, Char *pathend_last,
 			break;
 		}
 
-		if (!match(pathend, pattern, restpattern, GLOB_LIMIT_RECUR)) {
+		if (!match(pathend, pattern, restpattern)) {
 			*pathend = EOS;
 			continue;
 		}
@@ -732,18 +725,17 @@ globextend(const Char *path, glob_t *pglob, struct glob_lim *limitp,
     struct stat *sb)
 {
 	char **pathv;
-	ssize_t i;
-	size_t newn, len;
+	size_t i, newn, len;
 	char *copy = NULL;
 	const Char *p;
 
 	newn = 2 + pglob->gl_pathc + pglob->gl_offs;
-	if (pglob->gl_offs >= INT_MAX ||
-	    pglob->gl_pathc >= INT_MAX ||
-	    newn >= INT_MAX ||
+	if (pglob->gl_offs >= SSIZE_MAX ||
+	    pglob->gl_pathc >= SSIZE_MAX ||
+	    newn >= SSIZE_MAX ||
 	    SIZE_MAX / sizeof(*pathv) <= newn) {
  nospace:
-		for (i = pglob->gl_offs; i < (ssize_t)(newn - 2); i++) {
+		for (i = pglob->gl_offs; i < newn - 2; i++) {
 			if (pglob->gl_pathv && pglob->gl_pathv[i])
 				free(pglob->gl_pathv[i]);
 		}
@@ -760,7 +752,7 @@ globextend(const Char *path, glob_t *pglob, struct glob_lim *limitp,
 	if (pglob->gl_pathv == NULL && pglob->gl_offs > 0) {
 		/* first time around -- clear initial gl_offs items */
 		pathv += pglob->gl_offs;
-		for (i = pglob->gl_offs; --i >= 0; )
+		for (i = pglob->gl_offs; i > 0; i--)
 			*--pathv = NULL;
 	}
 	pglob->gl_pathv = pathv;
@@ -790,17 +782,24 @@ globextend(const Char *path, glob_t *pglob, struct glob_lim *limitp,
 
 /*
  * pattern matching function for filenames.  Each occurrence of the *
- * pattern causes a recursion level.
+ * pattern causes an iteration.
+ *
+ * Note, this function differs from the original as per the discussion
+ * here: https://research.swtch.com/glob
+ *
+ * Basically we removed the recursion and made it use the algorithm
+ * from Russ Cox to not go quadratic on cases like a file called
+ * ("a" x 100) . "x" matched against a pattern like "a*a*a*a*a*a*a*y".
  */
 static int
-match(Char *name, Char *pat, Char *patend, int recur)
+match(Char *name, Char *pat, Char *patend)
 {
 	int ok, negate_range;
 	Char c, k;
+	Char *nextp = NULL;
+	Char *nextn = NULL;
 
-	if (recur-- == 0)
-		return GLOB_NOSPACE;
-
+loop:
 	while (pat < patend) {
 		c = *pat++;
 		switch (c & M_MASK) {
@@ -809,19 +808,19 @@ match(Char *name, Char *pat, Char *patend, int recur)
 				pat++;	/* eat consecutive '*' */
 			if (pat == patend)
 				return 1;
-			do {
-			    if (match(name, pat, patend, recur))
-				    return 1;
-			} while (*name++ != EOS);
-			return 0;
+			if (*name == EOS)
+				return 0;
+			nextn = name + 1;
+			nextp = pat - 1;
+			break;
 		case M_ONE:
 			if (*name++ == EOS)
-				return 0;
+				goto fail;
 			break;
 		case M_SET:
 			ok = 0;
 			if ((k = *name++) == EOS)
-				return 0;
+				goto fail;
 			if ((negate_range = ((*pat & M_MASK) == M_NOT)) != EOS)
 				++pat;
 			while (((c = *pat++) & M_MASK) != M_END) {
@@ -840,22 +839,30 @@ match(Char *name, Char *pat, Char *patend, int recur)
 					ok = 1;
 			}
 			if (ok == negate_range)
-				return 0;
+				goto fail;
 			break;
 		default:
 			if (*name++ != c)
-				return 0;
+				goto fail;
 			break;
 		}
 	}
-	return *name == EOS;
+	if (*name == EOS)
+		return 1;
+fail:
+	if (nextn) {
+		pat = nextp;
+		name = nextn;
+		goto loop;
+	}
+	return 0;
 }
 
 /* Free allocated data belonging to a glob_t structure. */
 void
 sudo_globfree(glob_t *pglob)
 {
-	int i;
+	size_t i;
 	char **pp;
 
 	if (pglob->gl_pathv != NULL) {
@@ -915,7 +922,7 @@ g_strchr(const Char *str, int ch)
 }
 
 static int
-g_Ctoc(const Char *str, char *buf, unsigned int len)
+g_Ctoc(const Char *str, char *buf, size_t len)
 {
 
 	while (len--) {

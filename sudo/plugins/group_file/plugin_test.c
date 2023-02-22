@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2010-2013 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2010-2013 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,7 +16,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,11 +30,10 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
-#include <pwd.h>
 
 #include "sudo_plugin.h"
 
-__dso_public int main(int argc, char *argv[]);
+sudo_dso_public int main(int argc, char *argv[]);
 
 /*
  * Simple driver to test sudoer group plugins.
@@ -83,8 +87,10 @@ group_plugin_load(char *plugin_info)
 	savedch = *args;
 	*args = '\0';
     }
-    strncpy(path, plugin_info, sizeof(path) - 1);
-    path[sizeof(path) - 1] = '\0';
+    if (strlcpy(path, plugin_info, sizeof(path)) >= sizeof(path)) {
+	fprintf(stderr, "path too long: %s\n", plugin_info);
+	return -1;
+    }
     if (args != NULL)
 	*args++ = savedch;
 
@@ -102,7 +108,7 @@ group_plugin_load(char *plugin_info)
 
     if (SUDO_API_VERSION_GET_MAJOR(group_plugin->version) != GROUP_API_VERSION_MAJOR) {
 	fprintf(stderr,
-	    "%s: incompatible group plugin major version %d, expected %d\n",
+	    "%s: incompatible group plugin major version %u, expected %d\n",
 	    path, SUDO_API_VERSION_GET_MAJOR(group_plugin->version),
 	    GROUP_API_VERSION_MAJOR);
 	return -1;
@@ -113,7 +119,7 @@ group_plugin_load(char *plugin_info)
      */
     if (args != NULL) {
 	int ac = 0, wasblank = 1;
-	char *cp;
+	char *cp, *last;
 
         for (cp = args; *cp != '\0'; cp++) {
             if (isblank((unsigned char)*cp)) {
@@ -124,16 +130,18 @@ group_plugin_load(char *plugin_info)
             }
         }
 	if (ac != 0) 	{
-	    char *last;
-
-	    argv = malloc(ac * sizeof(char *));
+	    argv = malloc((ac + 1) * sizeof(char *));
 	    if (argv == NULL) {
 		perror(NULL);
 		return -1;
 	    }
 	    ac = 0;
-	    for ((cp = strtok_r(args, " \t", &last)); cp != NULL; (cp = strtok_r(NULL, " \t", &last)))
+	    cp = strtok_r(args, " \t", &last);
+	    while (cp != NULL) {
 		argv[ac++] = cp;
+		cp = strtok_r(NULL, " \t", &last);
+	    }
+	    argv[ac] = NULL;
 	}
     }
 
@@ -164,7 +172,7 @@ usage(void)
 {
     fprintf(stderr,
 	"usage: plugin_test [-p \"plugin.so plugin_args ...\"] user:group ...\n");
-    exit(1);
+    exit(EXIT_FAILURE);
 }
 
 int
@@ -192,7 +200,7 @@ main(int argc, char *argv[])
 
     if (group_plugin_load(plugin) != 1) {
 	fprintf(stderr, "unable to load plugin: %s\n", plugin);
-	exit(1);
+	exit(EXIT_FAILURE);
     }
 
     for (i = 0; argv[i] != NULL; i++) {
@@ -207,6 +215,6 @@ main(int argc, char *argv[])
     }
     group_plugin_unload();
 
-    exit(0);
+    exit(EXIT_SUCCESS);
 }
 

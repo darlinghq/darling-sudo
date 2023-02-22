@@ -1,6 +1,8 @@
 /*
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 1999-2005, 2007-2008, 2010-2015
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ *	Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,13 +15,15 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Sponsored in part by the Defense Advanced Research Projects
  * Agency (DARPA) and Air Force Research Laboratory, Air Force
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
+ */
+
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
  */
 
 #include <config.h>
@@ -29,12 +33,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRING_H */
+#include <string.h>
 #include <unistd.h>
 #include <pwd.h>
 #include <krb5.h>
@@ -91,7 +90,7 @@ int
 sudo_krb5_setup(struct passwd *pw, char **promptp, sudo_auth *auth)
 {
     static char	*krb5_prompt;
-    debug_decl(sudo_krb5_init, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_krb5_init, SUDOERS_DEBUG_AUTH);
 
     if (krb5_prompt == NULL) {
 	krb5_context	sudo_context;
@@ -134,7 +133,7 @@ sudo_krb5_init(struct passwd *pw, sudo_auth *auth)
     krb5_context	sudo_context;
     krb5_error_code 	error;
     char		cache_name[64], *pname = pw->pw_name;
-    debug_decl(sudo_krb5_init, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_krb5_init, SUDOERS_DEBUG_AUTH);
 
     auth->data = (void *) &sudo_krb5_data; /* Stash all our data here */
 
@@ -186,7 +185,7 @@ sudo_krb5_verify(struct passwd *pw, char *pass, sudo_auth *auth, struct sudo_con
     krb5_principal	princ;
     krb5_ccache		ccache;
     krb5_error_code	error;
-    debug_decl(sudo_krb5_verify, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_krb5_verify, SUDOERS_DEBUG_AUTH);
 
     sudo_context = ((sudo_krb5_datap) auth->data)->sudo_context;
     princ = ((sudo_krb5_datap) auth->data)->princ;
@@ -197,7 +196,7 @@ sudo_krb5_verify(struct passwd *pw, char *pass, sudo_auth *auth, struct sudo_con
 }
 #else
 int
-sudo_krb5_verify(struct passwd *pw, char *pass, sudo_auth *auth)
+sudo_krb5_verify(struct passwd *pw, char *pass, sudo_auth *auth, struct sudo_conv_callback *callback)
 {
     krb5_context	sudo_context;
     krb5_principal	princ;
@@ -205,7 +204,7 @@ sudo_krb5_verify(struct passwd *pw, char *pass, sudo_auth *auth)
     krb5_ccache		ccache;
     krb5_error_code	error;
     krb5_get_init_creds_opt *opts = NULL;
-    debug_decl(sudo_krb5_verify, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_krb5_verify, SUDOERS_DEBUG_AUTH);
 
     sudo_context = ((sudo_krb5_datap) auth->data)->sudo_context;
     princ = ((sudo_krb5_datap) auth->data)->princ;
@@ -264,12 +263,12 @@ done:
 #endif
 
 int
-sudo_krb5_cleanup(struct passwd *pw, sudo_auth *auth)
+sudo_krb5_cleanup(struct passwd *pw, sudo_auth *auth, bool force)
 {
     krb5_context	sudo_context;
     krb5_principal	princ;
     krb5_ccache		ccache;
-    debug_decl(sudo_krb5_cleanup, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_krb5_cleanup, SUDOERS_DEBUG_AUTH);
 
     sudo_context = ((sudo_krb5_datap) auth->data)->sudo_context;
     princ = ((sudo_krb5_datap) auth->data)->princ;
@@ -301,7 +300,7 @@ verify_krb_v5_tgt(krb5_context sudo_context, krb5_creds *cred, char *auth_name)
     krb5_error_code	error;
     krb5_principal	server;
     krb5_verify_init_creds_opt vopt;
-    debug_decl(verify_krb_v5_tgt, SUDOERS_DEBUG_AUTH)
+    debug_decl(verify_krb_v5_tgt, SUDOERS_DEBUG_AUTH);
 
     /*
      * Get the server principal for the local host.

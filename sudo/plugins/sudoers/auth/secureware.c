@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 1998-2005, 2010-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 1998-2005, 2010-2015 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +20,11 @@
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
 #ifdef HAVE_GETPRPWNAM
@@ -25,12 +32,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <unistd.h>
 #include <pwd.h>
 #ifdef __hpux
@@ -51,7 +53,7 @@ extern int crypt_type;
 int
 sudo_secureware_init(struct passwd *pw, sudo_auth *auth)
 {
-    debug_decl(sudo_secureware_init, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_secureware_init, SUDOERS_DEBUG_AUTH);
 
 #ifdef __alpha
     if (crypt_type == INT_MAX)
@@ -69,7 +71,7 @@ sudo_secureware_verify(struct passwd *pw, char *pass, sudo_auth *auth, struct su
 {
     char *pw_epasswd = auth->data;
     char *epass = NULL;
-    debug_decl(sudo_secureware_verify, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_secureware_verify, SUDOERS_DEBUG_AUTH);
 
     /* An empty plain-text password must match an empty encrypted password. */
     if (pass[0] == '\0')
@@ -94,17 +96,13 @@ sudo_secureware_verify(struct passwd *pw, char *pass, sudo_auth *auth, struct su
 }
 
 int
-sudo_secureware_cleanup(pw, auth)
-    struct passwd *pw;
-    sudo_auth *auth;
+sudo_secureware_cleanup(struct passwd *pw, sudo_auth *auth, bool force)
 {
     char *pw_epasswd = auth->data;
-    debug_decl(sudo_secureware_cleanup, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_secureware_cleanup, SUDOERS_DEBUG_AUTH);
 
-    if (pw_epasswd != NULL) {
-	memset_s(pw_epasswd, SUDO_CONV_REPL_MAX, 0, strlen(pw_epasswd));
-	free(pw_epasswd);
-    }
+    if (pw_epasswd != NULL)
+	freezero(pw_epasswd, strlen(pw_epasswd));
     debug_return_int(AUTH_SUCCESS);
 }
 

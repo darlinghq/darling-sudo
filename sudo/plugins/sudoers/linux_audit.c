@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2010-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2010-2015 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,11 +16,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
 #ifdef HAVE_LINUX_AUDIT
 
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -39,7 +45,7 @@ static int
 linux_audit_open(void)
 {
     static int au_fd = -1;
-    debug_decl(linux_audit_open, SUDOERS_DEBUG_AUDIT)
+    debug_decl(linux_audit_open, SUDOERS_DEBUG_AUDIT);
 
     if (au_fd != -1)
 	debug_return_int(au_fd);
@@ -49,20 +55,23 @@ linux_audit_open(void)
 	if (errno == EINVAL || errno == EPROTONOSUPPORT || errno == EAFNOSUPPORT)
 	    au_fd = AUDIT_NOT_CONFIGURED;
 	else
-	    sudo_warn(U_("unable to open audit system"));
-    } else {
-	(void)fcntl(au_fd, F_SETFD, FD_CLOEXEC);
+	    sudo_warn("%s", U_("unable to open audit system"));
+    } else if (fcntl(au_fd, F_SETFD, FD_CLOEXEC) == -1) {
+	sudo_warn("%s", U_("unable to open audit system"));
+	audit_close(au_fd);
+	au_fd = -1;
     }
     debug_return_int(au_fd);
 }
 
 int
-linux_audit_command(char *argv[], int result)
+linux_audit_command(char *const argv[], int result)
 {
     int au_fd, rc = -1;
-    char *command, *cp, **av;
+    char *cp, *command = NULL;
+    char * const *av;
     size_t size, n;
-    debug_decl(linux_audit_command, SUDOERS_DEBUG_AUDIT)
+    debug_decl(linux_audit_command, SUDOERS_DEBUG_AUDIT);
 
     /* Don't return an error if auditing is not configured. */
     if ((au_fd = linux_audit_open()) < 0)
@@ -71,12 +80,13 @@ linux_audit_command(char *argv[], int result)
     /* Convert argv to a flat string. */
     for (size = 0, av = argv; *av != NULL; av++)
 	size += strlen(*av) + 1;
-    command = cp = malloc(size);
+    if (size != 0)
+	command = malloc(size);
     if (command == NULL) {
 	sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
 	goto done;
     }
-    for (av = argv; *av != NULL; av++) {
+    for (av = argv, cp = command; *av != NULL; av++) {
 	n = strlcpy(cp, *av, size - (cp - command));
 	if (n >= size - (cp - command)) {
 	    sudo_warnx(U_("internal error, %s overflow"), __func__);
@@ -90,7 +100,7 @@ linux_audit_command(char *argv[], int result)
     /* Log command, ignoring ECONNREFUSED on error. */
     if (audit_log_user_command(au_fd, AUDIT_USER_CMD, command, NULL, result) <= 0) {
 	if (errno != ECONNREFUSED) {
-	    sudo_warn(U_("unable to send audit message"));
+	    sudo_warn("%s", U_("unable to send audit message"));
 	    goto done;
 	}
     }

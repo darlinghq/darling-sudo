@@ -3,6 +3,8 @@
 /*	$FreeBSD: head/include/getopt.h 203963 2010-02-16 19:28:10Z imp $ */
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2000 The NetBSD Foundation, Inc.
  * All rights reserved.
  *
@@ -55,19 +57,19 @@ struct option {
 	int val;
 };
 
-__dso_public int sudo_getopt_long(int, char * const *, const char *,
+sudo_dso_public int sudo_getopt_long(int, char * const *, const char *,
 	    const struct option *, int *);
 #undef getopt_long
 #define getopt_long(_a, _b, _c, _d, _e) \
 	sudo_getopt_long((_a), (_b), (_c), (_d), (_e))
 
-__dso_public int sudo_getopt_long_only(int, char * const *, const char *,
+sudo_dso_public int sudo_getopt_long_only(int, char * const *, const char *,
 	    const struct option *, int *);
 #undef getopt_long_only
 #define getopt_long_only(_a, _b, _c, _d, _e) \
 	sudo_getopt_long_only((_a), (_b), (_c), (_d), (_e))
 #if 0
-__dso_public int sudo_getopt(int, char * const [], const char *);
+sudo_dso_public int sudo_getopt(int, char * const [], const char *);
 #undef getopt
 #define getopt(_a, _b, _c)	sudo_getopt((_a), (_b), (_c))
 #endif
