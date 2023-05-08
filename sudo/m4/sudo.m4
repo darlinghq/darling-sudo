@@ -1,7 +1,21 @@
 dnl Local m4 macros for autoconf (used by sudo)
 dnl
+dnl SPDX-License-Identifier: ISC
+dnl
 dnl Copyright (c) 1994-1996, 1998-2005, 2007-2015
-dnl	Todd C. Miller <Todd.Miller@courtesan.com>
+dnl	Todd C. Miller <Todd.Miller@sudo.ws>
+dnl
+dnl Permission to use, copy, modify, and distribute this software for any
+dnl purpose with or without fee is hereby granted, provided that the above
+dnl copyright notice and this permission notice appear in all copies.
+dnl
+dnl THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+dnl WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+dnl MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+dnl ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+dnl WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+dnl ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+dnl OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 dnl
 dnl XXX - should cache values in all cases!!!
 dnl
@@ -65,21 +79,19 @@ dnl
 dnl Where the log file goes, use /var/log if it exists, else /{var,usr}/adm
 dnl
 AC_DEFUN([SUDO_LOGFILE], [AC_MSG_CHECKING(for log file location)
-if test -n "$with_logpath"; then
-    AC_MSG_RESULT($with_logpath)
-    SUDO_DEFINE_UNQUOTED(_PATH_SUDO_LOGFILE, "$with_logpath")
-elif test -d "/var/log"; then
-    AC_MSG_RESULT(/var/log/sudo.log)
-    SUDO_DEFINE(_PATH_SUDO_LOGFILE, "/var/log/sudo.log")
-elif test -d "/var/adm"; then
-    AC_MSG_RESULT(/var/adm/sudo.log)
-    SUDO_DEFINE(_PATH_SUDO_LOGFILE, "/var/adm/sudo.log")
-elif test -d "/usr/adm"; then
-    AC_MSG_RESULT(/usr/adm/sudo.log)
-    SUDO_DEFINE(_PATH_SUDO_LOGFILE, "/usr/adm/sudo.log")
-else
-    AC_MSG_RESULT(unknown, you will have to set _PATH_SUDO_LOGFILE by hand)
-fi
+    if test "${with_logpath-yes}" != "yes"; then
+	logpath="$with_logpath"
+    else
+	# Default value of logpath set in configure.ac
+	for d in /var/log /var/adm /usr/adm; do
+	    if test -d "$d"; then
+		logpath="$d/sudo.log"
+		break
+	    fi
+	done
+    fi
+    AC_MSG_RESULT($logpath)
+    SUDO_DEFINE_UNQUOTED(_PATH_SUDO_LOGFILE, "$logpath")
 ])dnl
 
 dnl
@@ -106,9 +118,13 @@ dnl
 dnl Parent directory for time stamp dir.
 dnl
 AC_DEFUN([SUDO_RUNDIR], [AC_MSG_CHECKING(for sudo run dir location)
-rundir="$with_rundir"
-if test -z "$rundir"; then
-    for d in /var/run /var/db /var/lib /var/adm /usr/adm; do
+if test -n "$with_rundir"; then
+    rundir="$with_rundir"
+elif test -n "$runstatedir" && test "$runstatedir" != '${localstatedir}/run'; then
+    rundir="$runstatedir/sudo"
+else
+    # No --with-rundir or --runstatedir specified
+    for d in /run /var/run /var/db /var/lib /var/adm /usr/adm; do
 	if test -d "$d"; then
 	    rundir="$d/sudo"
 	    break
@@ -117,6 +133,7 @@ if test -z "$rundir"; then
 fi
 AC_MSG_RESULT([$rundir])
 SUDO_DEFINE_UNQUOTED(_PATH_SUDO_TIMEDIR, "$rundir/ts")
+SUDO_DEFINE_UNQUOTED(_PATH_SUDO_LOGSRVD_PID, "$rundir/sudo_logsrvd.pid")
 ])dnl
 
 dnl
@@ -144,17 +161,41 @@ AC_DEFUN([SUDO_IO_LOGDIR], [
     AC_MSG_CHECKING(for I/O log dir location)
     if test "${with_iologdir-yes}" != "yes"; then
 	iolog_dir="$with_iologdir"
-    elif test -d "/var/log"; then
-	iolog_dir="/var/log/sudo-io"
-    elif test -d "/var/adm"; then
-	iolog_dir="/var/adm/sudo-io"
     else
-	iolog_dir="/usr/adm/sudo-io"
+	# Default value of iolog_dir set in configure.ac
+	for d in /var/log /var/adm /usr/adm; do
+	    if test -d "$d"; then
+		iolog_dir="$d/sudo-io"
+		break
+	    fi
+	done
     fi
     if test "${with_iologdir}" != "no"; then
 	SUDO_DEFINE_UNQUOTED(_PATH_SUDO_IO_LOGDIR, "$iolog_dir")
     fi
     AC_MSG_RESULT($iolog_dir)
+])dnl
+
+dnl
+dnl Where the log files go, use /var/log if it exists, else /{var,usr}/adm
+dnl
+AC_DEFUN([SUDO_LOGDIR], [
+    AC_MSG_CHECKING(for log dir location)
+    if test "${with_logdir-yes}" != "yes"; then
+	log_dir="$with_logdir"
+    else
+	# Default value of log_dir set in configure.ac
+	for d in /var/log /var/adm /usr/adm; do
+	    if test -d "$d"; then
+		log_dir="$d"
+		break
+	    fi
+	done
+    fi
+    if test "${with_logdir}" != "no"; then
+	SUDO_DEFINE_UNQUOTED(_PATH_SUDO_LOGDIR, "$log_dir")
+    fi
+    AC_MSG_RESULT($log_dir)
 ])dnl
 
 dnl
@@ -165,7 +206,7 @@ AC_DEFUN([SUDO_FUNC_FNMATCH],
 AC_CACHE_VAL(sudo_cv_func_fnmatch,
 [rm -f conftestdata; > conftestdata
 AC_RUN_IFELSE([AC_LANG_SOURCE([[#include <fnmatch.h>
-main() { exit(fnmatch("/*/bin/echo *", "/usr/bin/echo just a test", FNM_CASEFOLD)); }]])], [sudo_cv_func_fnmatch=yes], [sudo_cv_func_fnmatch=no],
+int main() { return(fnmatch("/*/bin/echo *", "/usr/bin/echo just a test", FNM_CASEFOLD)); }]])], [sudo_cv_func_fnmatch=yes], [sudo_cv_func_fnmatch=no],
   [sudo_cv_func_fnmatch=no])
 rm -f core core.* *.core])
 AC_MSG_RESULT($sudo_cv_func_fnmatch)
@@ -182,7 +223,7 @@ AC_DEFUN([SUDO_WORKING_PIE],
 AC_CACHE_VAL(sudo_cv_working_pie,
 [rm -f conftestdata; > conftestdata
 AC_RUN_IFELSE([AC_LANG_SOURCE([AC_INCLUDES_DEFAULT
-main() { char *p = malloc(1024); if (p == NULL) return 1; memset(p, 0, 1024); return 0; }])], [sudo_cv_working_pie=yes], [sudo_cv_working_pie=no],
+int main() { char *p = malloc(1024); if (p == NULL) return 1; memset(p, 0, 1024); return 0; }])], [sudo_cv_working_pie=yes], [sudo_cv_working_pie=no],
   [sudo_cv_working_pie=no])
 rm -f core core.* *.core])
 AC_MSG_RESULT($sudo_cv_working_pie)
@@ -266,6 +307,26 @@ int putenv(const char *string) {return 0;}], [])],
 ])
 
 dnl
+dnl check whether au_close() takes 3 or 4 arguments
+dnl
+AC_DEFUN([SUDO_FUNC_AU_CLOSE_SOLARIS11],
+[AC_CACHE_CHECK([whether au_close() takes 4 arguments],
+sudo_cv_func_au_close_solaris11,
+[AC_COMPILE_IFELSE([AC_LANG_PROGRAM([AC_INCLUDES_DEFAULT
+#include <bsm/audit.h>
+#include <bsm/libbsm.h>
+#include <bsm/audit_uevents.h>
+
+int au_close(int d, int keep, au_event_t event, au_emod_t emod) {return 0;}], [])],
+    [sudo_cv_func_au_close_solaris11=yes],
+    [sudo_cv_func_au_close_solaris11=no])
+  ])
+  if test $sudo_cv_func_au_close_solaris11 = yes; then
+    AC_DEFINE(HAVE_AU_CLOSE_SOLARIS11, 1, [Define to 1 if the `au_close' functions takes 4 arguments like Solaris 11.])
+  fi
+])
+
+dnl
 dnl Check if the data argument for the sha2 functions is void * or u_char *
 dnl
 AC_DEFUN([SUDO_FUNC_SHA2_VOID_PTR],
@@ -310,7 +371,7 @@ AC_DEFUN([SUDO_SOCK_SIN_LEN], [
 dnl
 dnl check for max length of uid_t in string representation.
 dnl we can't really trust UID_MAX or MAXUID since they may exist
-dnl only for backwards compatibility.
+dnl only for backward compatibility.
 dnl
 AC_DEFUN([SUDO_UID_T_LEN],
 [AC_REQUIRE([AC_TYPE_UID_T])
@@ -319,21 +380,22 @@ AC_CACHE_VAL(sudo_cv_uid_t_len,
 [rm -f conftestdata
 AC_RUN_IFELSE([AC_LANG_SOURCE([[
 #include <stdio.h>
+#include <string.h>
 #include <pwd.h>
 #include <limits.h>
 #include <sys/types.h>
-main() {
+int main() {
   FILE *f;
   char b[1024];
   uid_t u = (uid_t) -1;
 
   if ((f = fopen("conftestdata", "w")) == NULL)
-    exit(1);
+    return(1);
 
   (void) sprintf(b, "%lu", (unsigned long) u);
-  (void) fprintf(f, "%d\n", strlen(b));
+  (void) fprintf(f, "%d\n", (int)strlen(b));
   (void) fclose(f);
-  exit(0);
+  return(0);
 }]])], [sudo_cv_uid_t_len=`cat conftestdata`], [sudo_cv_uid_t_len=10], [sudo_cv_uid_t_len=10])
 ])
 rm -f conftestdata
@@ -342,37 +404,77 @@ AC_DEFINE_UNQUOTED(MAX_UID_T_LEN, $sudo_cv_uid_t_len, [Define to the max length 
 ])
 
 dnl
+dnl There are three different utmp variants we need to check for.
+dnl SUDO_CHECK_UTMP_MEMBERS(utmp_type)
+dnl
+AC_DEFUN([SUDO_CHECK_UTMP_MEMBERS], [
+    dnl
+    dnl Check for utmp/utmpx/utmps struct members.
+    dnl
+    AC_CHECK_MEMBER([struct $1.ut_id], [
+	AC_DEFINE(HAVE_STRUCT_UTMP_UT_ID, 1, [Define to 1 if `ut_id' is a member of `struct utmp'.])
+    ], [], [
+#	include <sys/types.h>
+#	include <$1.h>
+    ])
+    AC_CHECK_MEMBER([struct $1.ut_pid], [
+	AC_DEFINE(HAVE_STRUCT_UTMP_UT_PID, 1, [Define to 1 if `ut_pid' is a member of `struct utmp'.])
+    ], [], [
+#	include <sys/types.h>
+#	include <$1.h>
+    ])
+    AC_CHECK_MEMBER([struct $1.ut_tv], [
+	AC_DEFINE(HAVE_STRUCT_UTMP_UT_TV, 1, [Define to 1 if `ut_tv' is a member of `struct utmp'.])
+    ], [], [
+#	include <sys/types.h>
+#	include <$1.h>
+    ])
+    AC_CHECK_MEMBER([struct $1.ut_type], [
+	AC_DEFINE(HAVE_STRUCT_UTMP_UT_TYPE, 1, [Define to 1 if `ut_type' is a member of `struct utmp'.])
+    ], [], [
+#	include <sys/types.h>
+#	include <$1.h>
+    ])
+    dnl
+    dnl Older struct utmp has ut_name instead of ut_user
+    dnl
+    if test "$1" = "utmp"; then
+	AC_CHECK_MEMBERS([struct utmp.ut_user], [], [], [
+#	include <sys/types.h>
+#	include <$1.h>
+	])
+    fi
+    dnl
+    dnl Check for ut_exit.__e_termination first, then ut_exit.e_termination
+    dnl We need to have already defined _GNU_SOURCE on glibc which only has
+    dnl __e_termination visible when _GNU_SOURCE is *not* defined.
+    dnl
+    AC_CHECK_MEMBER([struct $1.ut_exit.__e_termination], [
+	AC_DEFINE(HAVE_STRUCT_UTMP_UT_EXIT, 1, [Define to 1 if `ut_exit' is a member of `struct utmp'.])
+	AC_DEFINE(HAVE_STRUCT_UTMP_UT_EXIT___E_TERMINATION, 1, [Define to 1 if `ut_exit.__e_termination' is a member of `struct utmp'.])
+    ], [
+	AC_CHECK_MEMBER([struct $1.ut_exit.e_termination], [
+	    AC_DEFINE(HAVE_STRUCT_UTMP_UT_EXIT, 1, [Define to 1 if `ut_exit' is a member of `struct utmp'.])
+	    AC_DEFINE(HAVE_STRUCT_UTMP_UT_EXIT_E_TERMINATION, 1, [Define to 1 if `ut_exit.e_termination' is a member of `struct utmp'.])
+	], [], [
+#	    include <sys/types.h>
+#	    include <$1.h>
+	])
+    ], [
+#	include <sys/types.h>
+#	include <$1.h>
+    ])
+])
+
+dnl
 dnl Append a libpath to an LDFLAGS style variable if not already present.
 dnl Also appends to the _R version unless rpath is disabled.
 dnl
 AC_DEFUN([SUDO_APPEND_LIBPATH], [
-    case "${$1}" in
-	*"-L$2"|*"-L$2 ")
-	    ;;
-	*)
-	    $1="${$1} -L$2"
-	    if test X"$enable_rpath" = X"yes"; then
-		$1_R="${$1_R} -R$2"
-	    fi
-	    ;;
-    esac
-])
-
-dnl
-dnl Append a directory to CPPFLAGS if not already present.
-dnl
-AC_DEFUN([SUDO_APPEND_CPPFLAGS], [
-    case "${CPPFLAGS}" in
-	*"$1"|*"$1 ")
-	    ;;
-	*)
-	    if test X"${CPPFLAGS}" = X""; then
-		CPPFLAGS="$1"
-	    else
-		CPPFLAGS="${CPPFLAGS} $1"
-	    fi
-	    ;;
-    esac
+    AX_APPEND_FLAG([-L$2], [$1])
+    if test X"$enable_rpath" = X"yes"; then
+	AX_APPEND_FLAG([-R$2], [$1_R])
+    fi
 ])
 
 dnl

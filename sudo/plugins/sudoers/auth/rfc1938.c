@@ -1,6 +1,8 @@
 /*
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 1994-1996, 1998-2005, 2010-2012, 2014-2015
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ *	Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +21,11 @@
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
 #if defined(HAVE_SKEY) || defined(HAVE_OPIE)
@@ -26,12 +33,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <unistd.h>
 #include <pwd.h>
 
@@ -60,9 +62,9 @@ sudo_rfc1938_setup(struct passwd *pw, char **promptp, sudo_auth *auth)
     char challenge[256];
     size_t challenge_len;
     static char *orig_prompt = NULL, *new_prompt = NULL;
-    static int op_len, np_size;
+    static size_t op_len, np_size;
     static struct RFC1938 rfc1938;
-    debug_decl(sudo_rfc1938_setup, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_rfc1938_setup, SUDOERS_DEBUG_AUTH);
 
     /* Stash a pointer to the rfc1938 struct if we have not initialized */
     if (!auth->data)
@@ -116,7 +118,7 @@ sudo_rfc1938_setup(struct passwd *pw, char **promptp, sudo_auth *auth)
     if (def_long_otp_prompt)
 	(void) snprintf(new_prompt, np_size, "%s\n%s", challenge, orig_prompt);
     else
-	(void) snprintf(new_prompt, np_size, "%.*s [ %s ]:", op_len,
+	(void) snprintf(new_prompt, np_size, "%.*s [ %s ]:", (int)op_len,
 	    orig_prompt, challenge);
 
     *promptp = new_prompt;
@@ -126,7 +128,7 @@ sudo_rfc1938_setup(struct passwd *pw, char **promptp, sudo_auth *auth)
 int
 sudo_rfc1938_verify(struct passwd *pw, char *pass, sudo_auth *auth, struct sudo_conv_callback *callback)
 {
-    debug_decl(sudo_rfc1938_verify, SUDOERS_DEBUG_AUTH)
+    debug_decl(sudo_rfc1938_verify, SUDOERS_DEBUG_AUTH);
 
     if (rfc1938verify((struct RFC1938 *) auth->data, pass) == 0)
 	debug_return_int(AUTH_SUCCESS);

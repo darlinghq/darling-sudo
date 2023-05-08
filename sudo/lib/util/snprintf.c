@@ -1,7 +1,9 @@
 /*	$OpenBSD: vfprintf.c,v 1.67 2014/12/21 00:23:30 daniel Exp $	*/
-/*-
+/* 
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1999-2005, 2008, 2010-2016
- *      Todd C. Miller <Todd.Miller@courtesan.com>
+ *      Todd C. Miller <Todd.Miller@sudo.ws>
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -45,7 +47,6 @@
     !defined(HAVE_VASPRINTF) || !defined(HAVE_ASPRINTF) || \
     defined(PREFER_PORTABLE_SNPRINTF)
 
-#include <sys/types.h>
 #include <sys/mman.h>
 
 #include <errno.h>
@@ -62,12 +63,7 @@
 # include <inttypes.h>
 #endif
 #include <stdio.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <unistd.h>
 #ifdef PRINTF_WIDE_CHAR
 # include <wchar.h>
@@ -539,7 +535,7 @@ reswitch:	switch (ch) {
 			if (width == INT_MIN)
 				goto overflow;
 			width = -width;
-			/* FALLTHROUGH */
+			FALLTHROUGH;
 		case '-':
 			flags |= LADJUST;
 			goto rflag;
@@ -653,7 +649,7 @@ reswitch:	switch (ch) {
 			break;
 		case 'D':
 			flags |= LONGINT;
-			/*FALLTHROUGH*/
+			FALLTHROUGH;
 		case 'd':
 		case 'i':
 			_umax = SARG();
@@ -819,7 +815,7 @@ fp_common:
 #endif /* NO_PRINTF_PERCENT_N */
 		case 'O':
 			flags |= LONGINT;
-			/*FALLTHROUGH*/
+			FALLTHROUGH;
 		case 'o':
 			_umax = UARG();
 			base = OCT;
@@ -879,7 +875,7 @@ fp_common:
 			break;
 		case 'U':
 			flags |= LONGINT;
-			/*FALLTHROUGH*/
+			FALLTHROUGH;
 		case 'u':
 			_umax = UARG();
 			base = DEC;
@@ -1280,7 +1276,7 @@ reswitch:	switch (ch) {
 			break;
 		case 'D':
 			flags |= LONGINT;
-			/*FALLTHROUGH*/
+			FALLTHROUGH;
 		case 'd':
 		case 'i':
 			ADDSARG();
@@ -1320,7 +1316,7 @@ reswitch:	switch (ch) {
 #endif /* NO_PRINTF_PERCENT_N */
 		case 'O':
 			flags |= LONGINT;
-			/*FALLTHROUGH*/
+			FALLTHROUGH;
 		case 'o':
 			ADDUARG();
 			break;
@@ -1337,7 +1333,7 @@ reswitch:	switch (ch) {
 			break;
 		case 'U':
 			flags |= LONGINT;
-			/*FALLTHROUGH*/
+			FALLTHROUGH;
 		case 'u':
 		case 'X':
 		case 'x':

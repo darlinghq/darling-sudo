@@ -1,20 +1,14 @@
 /*	$OpenBSD: globtest.c,v 1.1 2008/10/01 23:04:36 millert Exp $	*/
 
 /*
- * Public domain, 2008, Todd C. Miller <Todd.Miller@courtesan.com>
+ * Public domain, 2008, Todd C. Miller <Todd.Miller@sudo.ws>
  */
 
 #include <config.h>
 
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #ifdef HAVE_GLOB
 # include <glob.h>
 #else
@@ -23,6 +17,7 @@
 #include <errno.h>
 
 #include "sudo_compat.h"
+#include "sudo_util.h"
 
 #define MAX_RESULTS	256
 
@@ -34,7 +29,7 @@ struct gl_entry {
 };
 
 int test_glob(struct gl_entry *);
-__dso_public int main(int argc, char *argv[]);
+sudo_dso_public int main(int argc, char *argv[]);
 
 int
 main(int argc, char **argv)
@@ -45,10 +40,12 @@ main(int argc, char **argv)
 	struct gl_entry entry;
 	size_t len;
 
+	initprogname(argc > 0 ? argv[0] : "globtest");
+
 	if (argc > 1) {
 		if ((fp = fopen(argv[1], "r")) == NULL) {
 			perror(argv[1]);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -71,7 +68,7 @@ main(int argc, char **argv)
 			if (buf[len - 1] != '\n') {
 				fprintf(stderr,
 				    "globtest: missing newline at EOF\n");
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			buf[--len] = '\0';
 		}
@@ -90,14 +87,14 @@ main(int argc, char **argv)
 				fprintf(stderr,
 				    "globtest: invalid entry on line %d\n",
 				    lineno);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			len = cp - buf - 1;
 			if (len >= sizeof(entry.pattern)) {
 				fprintf(stderr,
 				    "globtest: pattern too big on line %d\n",
 				    lineno);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			memcpy(entry.pattern, buf + 1, len);
 			entry.pattern[len] = '\0';
@@ -107,14 +104,14 @@ main(int argc, char **argv)
 				fprintf(stderr,
 				    "globtest: invalid entry on line %d\n",
 				    lineno);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			ep = strchr(cp, '>');
 			if (ep == NULL) {
 				fprintf(stderr,
 				    "globtest: invalid entry on line %d\n",
 				    lineno);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			*ep = '\0';
 			entry.flags = 0;
@@ -141,7 +138,7 @@ main(int argc, char **argv)
 					fprintf(stderr,
 					    "globtest: invalid flags on line %d\n",
 					    lineno);
-					exit(1);
+					exit(EXIT_FAILURE);
 				}
 			}
 			entry.nresults = 0;
@@ -150,14 +147,14 @@ main(int argc, char **argv)
 		if (!entry.pattern[0]) {
 			fprintf(stderr, "globtest: missing entry on line %d\n",
 			    lineno);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 
 		if (entry.nresults + 1 > MAX_RESULTS) {
 			fprintf(stderr,
 			    "globtest: too many results for %s, max %d\n",
 			    entry.pattern, MAX_RESULTS);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 		entry.results[entry.nresults++] = strdup(buf);
 	}
@@ -182,7 +179,7 @@ int test_glob(struct gl_entry *entry)
 	if (glob(entry->pattern, entry->flags, NULL, &gl) != 0) {
 		fprintf(stderr, "glob failed: %s: %s\n", entry->pattern,
 		    strerror(errno));
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	for (ap = gl.gl_pathv; *ap != NULL; ap++)

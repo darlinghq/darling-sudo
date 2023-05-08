@@ -1,6 +1,8 @@
 /*
- * Copyright (c) 1996, 1998-2005, 2007-2015
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 1996, 1998-2005, 2007-2015, 2018
+ *	Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -20,6 +22,11 @@
  */
 
 /*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
+/*
  * Suppress a warning w/ gcc on Digital UN*X.
  * The system headers should really do this....
  */
@@ -28,23 +35,20 @@ struct mbuf;
 struct rtentry;
 #endif
 
+/* Avoid a compilation problem with gcc and machine/sys/getppdp.h */
+#define _MACHINE_SYS_GETPPDP_INCLUDED
+
 #include <config.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/time.h>
 #include <sys/ioctl.h>
 #if defined(HAVE_SYS_SOCKIO_H) && !defined(SIOCGIFCONF)
 # include <sys/sockio.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #ifdef HAVE_STDBOOL_H
 # include <stdbool.h>
 #else
@@ -76,15 +80,15 @@ struct rtentry;
 # include <ifaddrs.h>
 #endif
 
-#define SUDO_NET_IFS_C		/* to expose sudo_inet_ntop in sudo_compat.h */
+#define NEED_INET_NTOP		/* to expose sudo_inet_ntop in sudo_compat.h */
 
 #define DEFAULT_TEXT_DOMAIN	"sudo"
-#include "sudo_gettext.h"	/* must be included before sudo_compat.h */
 
 #include "sudo_compat.h"
-#include "sudo_fatal.h"
 #include "sudo_conf.h"
 #include "sudo_debug.h"
+#include "sudo_fatal.h"
+#include "sudo_gettext.h"
 
 /* Minix apparently lacks IFF_LOOPBACK */
 #ifndef IFF_LOOPBACK
@@ -115,9 +119,10 @@ get_net_ifs(char **addrinfo)
 #else
     char addrstr[INET_ADDRSTRLEN], maskstr[INET_ADDRSTRLEN];
 #endif
-    int ailen, len, num_interfaces = 0;
+    int len, num_interfaces = 0;
+    size_t ailen;
     char *cp;
-    debug_decl(get_net_ifs, SUDO_DEBUG_NETIF)
+    debug_decl(get_net_ifs, SUDO_DEBUG_NETIF);
 
     if (!sudo_conf_probe_interfaces())
 	debug_return_int(0);
@@ -142,12 +147,13 @@ get_net_ifs(char **addrinfo)
 	}
     }
     if (num_interfaces == 0)
-	debug_return_int(0);
+	goto done;
     ailen = num_interfaces * 2 * INET6_ADDRSTRLEN;
     if ((cp = malloc(ailen)) == NULL) {
 	sudo_debug_printf(SUDO_DEBUG_ERROR|SUDO_DEBUG_LINENO,
 	    "unable to allocate memory");
-	debug_return_int(-1);
+	num_interfaces = -1;
+	goto done;
     }
     *addrinfo = cp;
 
@@ -167,13 +173,14 @@ get_net_ifs(char **addrinfo)
 		if (inet_ntop(AF_INET, &sin->sin_addr, maskstr, sizeof(maskstr)) == NULL)
 		    continue;
 
-		len = snprintf(cp, ailen - (*addrinfo - cp),
-		    "%s%s/%s", cp == *addrinfo ? "" : " ", addrstr, maskstr);
-		if (len <= 0 || len >= ailen - (*addrinfo - cp)) {
+		len = snprintf(cp, ailen, "%s%s/%s",
+		    cp == *addrinfo ? "" : " ", addrstr, maskstr);
+		if (len < 0 || (size_t)len >= ailen) {
 		    sudo_warnx(U_("internal error, %s overflow"), __func__);
 		    goto done;
 		}
 		cp += len;
+		ailen -= len;
 		break;
 #ifdef HAVE_STRUCT_IN6_ADDR
 	    case AF_INET6:
@@ -184,13 +191,14 @@ get_net_ifs(char **addrinfo)
 		if (inet_ntop(AF_INET6, &sin6->sin6_addr, maskstr, sizeof(maskstr)) == NULL)
 		    continue;
 
-		len = snprintf(cp, ailen - (*addrinfo - cp),
-		    "%s%s/%s", cp == *addrinfo ? "" : " ", addrstr, maskstr);
-		if (len <= 0 || len >= ailen - (*addrinfo - cp)) {
+		len = snprintf(cp, ailen, "%s%s/%s",
+		    cp == *addrinfo ? "" : " ", addrstr, maskstr);
+		if (len < 0 || (size_t)len >= ailen) {
 		    sudo_warnx(U_("internal error, %s overflow"), __func__);
 		    goto done;
 		}
 		cp += len;
+		ailen -= len;
 		break;
 #endif /* HAVE_STRUCT_IN6_ADDR */
 	}
@@ -218,14 +226,14 @@ get_net_ifs(char **addrinfo)
     struct ifreq *ifr, *ifr_tmp = (struct ifreq *)ifr_tmpbuf;
     struct ifconf *ifconf;
     struct sockaddr_in *sin;
-    int ailen, i, len, n, sock, num_interfaces = 0;
-    size_t buflen = sizeof(struct ifconf) + BUFSIZ;
+    int i, len, n, sock, num_interfaces = 0;
+    size_t ailen, buflen = sizeof(struct ifconf) + BUFSIZ;
     char *cp, *previfname = "", *ifconf_buf = NULL;
     char addrstr[INET_ADDRSTRLEN], maskstr[INET_ADDRSTRLEN];
 #ifdef _ISC
     struct strioctl strioctl;
 #endif /* _ISC */
-    debug_decl(get_net_ifs, SUDO_DEBUG_NETIF)
+    debug_decl(get_net_ifs, SUDO_DEBUG_NETIF);
 
     if (!sudo_conf_probe_interfaces())
 	debug_return_int(0);
@@ -299,7 +307,7 @@ get_net_ifs(char **addrinfo)
 
 #ifdef SIOCGIFFLAGS
 	memset(ifr_tmp, 0, sizeof(*ifr_tmp));
-	strncpy(ifr_tmp->ifr_name, ifr->ifr_name, sizeof(ifr_tmp->ifr_name) - 1);
+	memcpy(ifr_tmp->ifr_name, ifr->ifr_name, sizeof(ifr_tmp->ifr_name));
 	if (ioctl(sock, SIOCGIFFLAGS, (caddr_t) ifr_tmp) < 0)
 #endif
 	    memcpy(ifr_tmp, ifr, sizeof(*ifr_tmp));
@@ -311,7 +319,7 @@ get_net_ifs(char **addrinfo)
 
 	/* Get the netmask. */
 	memset(ifr_tmp, 0, sizeof(*ifr_tmp));
-	strncpy(ifr_tmp->ifr_name, ifr->ifr_name, sizeof(ifr_tmp->ifr_name) - 1);
+	memcpy(ifr_tmp->ifr_name, ifr->ifr_name, sizeof(ifr_tmp->ifr_name));
 	sin = (struct sockaddr_in *) &ifr_tmp->ifr_addr;
 #ifdef _ISC
 	STRSET(SIOCGIFNETMASK, (caddr_t) ifr_tmp, sizeof(*ifr_tmp));
@@ -329,13 +337,14 @@ get_net_ifs(char **addrinfo)
 	if (inet_ntop(AF_INET, &sin->sin_addr, maskstr, sizeof(maskstr)) == NULL)
 	    continue;
 
-	len = snprintf(cp, ailen - (*addrinfo - cp),
-	    "%s%s/%s", cp == *addrinfo ? "" : " ", addrstr, maskstr);
-	if (len <= 0 || len >= ailen - (*addrinfo - cp)) {
+	len = snprintf(cp, ailen, "%s%s/%s",
+	    cp == *addrinfo ? "" : " ", addrstr, maskstr);
+	if (len < 0 || (size_t)len >= ailen) {
 	    sudo_warnx(U_("internal error, %s overflow"), __func__);
 	    goto done;
 	}
 	cp += len;
+	ailen -= len;
 
 	/* Stash the name of the interface we saved. */
 	previfname = ifr->ifr_name;
@@ -357,7 +366,7 @@ done:
 int
 get_net_ifs(char **addrinfo)
 {
-    debug_decl(get_net_ifs, SUDO_DEBUG_NETIF)
+    debug_decl(get_net_ifs, SUDO_DEBUG_NETIF);
     debug_return_int(0);
 }
 

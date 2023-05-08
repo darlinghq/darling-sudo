@@ -1,6 +1,9 @@
 /*	$OpenBSD: fnmatch.c,v 1.15 2011/02/10 21:31:59 stsp Exp $	*/
 
-/* Copyright (c) 2011, VMware, Inc.
+/*
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Copyright (c) 2011, VMware, Inc.
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -27,6 +30,8 @@
  */
 
 /*
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2008, 2016 Todd C. Miller <millert@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -40,6 +45,11 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
  */
 
 /* Authored by William A. Rowe Jr. <wrowe; apache.org, vmware.com>, April 2011
@@ -89,16 +99,8 @@
 
 #ifndef HAVE_FNMATCH
 
-#include <sys/types.h>
-
-#include <stdio.h>
 #include <ctype.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 
 #include "sudo_compat.h"
 #include "compat/charclass.h"
@@ -114,7 +116,7 @@ classmatch(const char *pattern, char test, int foldcase, const char **ep)
 	const char * const mismatch = pattern;
 	const char *colon;
 	struct cclass *cc;
-	int rval = RANGE_NOMATCH;
+	int result = RANGE_NOMATCH;
 	size_t len;
 
 	if (pattern[0] != '[' || pattern[1] != ':') {
@@ -135,16 +137,16 @@ classmatch(const char *pattern, char test, int foldcase, const char **ep)
 	for (cc = cclasses; cc->name != NULL; cc++) {
 		if (!strncmp(pattern, cc->name, len) && cc->name[len] == '\0') {
 			if (cc->isctype((unsigned char)test))
-				rval = RANGE_MATCH;
+				result = RANGE_MATCH;
 			break;
 		}
 	}
 	if (cc->name == NULL) {
 		/* invalid character class, treat as normal text */
 		*ep = mismatch;
-		rval = RANGE_ERROR;
+		result = RANGE_ERROR;
 	}
-	return rval;
+	return result;
 }
 
 /* Most MBCS/collation/case issues handled here.  Wildcard '*' is not handled.
@@ -300,7 +302,7 @@ int sudo_fnmatch(const char *pattern, const char *string, int flags)
     const char *dummyptr;
     const char *matchptr;
     int wild;
-    /* For '*' wild processing only; surpress 'used before initialization'
+    /* For '*' wild processing only; suppress 'used before initialization'
      * warnings with dummy initialization values;
      */
     const char *strstartseg = NULL;

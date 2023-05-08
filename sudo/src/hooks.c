@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2012-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2012-2016 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,18 +16,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
-#include <sys/types.h>
-#include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
-#include <unistd.h>
+#include <string.h>
 #include <errno.h>
 
 #include "sudo.h"
@@ -129,7 +128,7 @@ register_hook_internal(struct sudo_hook_list *head,
     int (*hook_fn)(), void *closure)
 {
     struct sudo_hook_entry *hook;
-    debug_decl(register_hook_internal, SUDO_DEBUG_HOOKS)
+    debug_decl(register_hook_internal, SUDO_DEBUG_HOOKS);
 
     if ((hook = calloc(1, sizeof(*hook))) == NULL) {
 	sudo_debug_printf(SUDO_DEBUG_ERROR|SUDO_DEBUG_LINENO,
@@ -147,40 +146,40 @@ register_hook_internal(struct sudo_hook_list *head,
 int
 register_hook(struct sudo_hook *hook)
 {
-    int rval;
-    debug_decl(register_hook, SUDO_DEBUG_HOOKS)
+    int ret;
+    debug_decl(register_hook, SUDO_DEBUG_HOOKS);
 
     if (SUDO_API_VERSION_GET_MAJOR(hook->hook_version) != SUDO_HOOK_VERSION_MAJOR) {
 	/* Major versions must match. */
 	errno = EINVAL;
-	rval = -1;
+	ret = -1;
     } else {
 	switch (hook->hook_type) {
 	    case SUDO_HOOK_GETENV:
-		rval = register_hook_internal(&sudo_hook_getenv_list,
+		ret = register_hook_internal(&sudo_hook_getenv_list,
 		    hook->hook_fn, hook->closure);
 		break;
 	    case SUDO_HOOK_PUTENV:
-		rval = register_hook_internal(&sudo_hook_putenv_list,
+		ret = register_hook_internal(&sudo_hook_putenv_list,
 		    hook->hook_fn, hook->closure);
 		break;
 	    case SUDO_HOOK_SETENV:
-		rval = register_hook_internal(&sudo_hook_setenv_list,
+		ret = register_hook_internal(&sudo_hook_setenv_list,
 		    hook->hook_fn, hook->closure);
 		break;
 	    case SUDO_HOOK_UNSETENV:
-		rval = register_hook_internal(&sudo_hook_unsetenv_list,
+		ret = register_hook_internal(&sudo_hook_unsetenv_list,
 		    hook->hook_fn, hook->closure);
 		break;
 	    default:
 		/* XXX - use define for unknown value */
 		errno = ENOTSUP;
-		rval = 1;
+		ret = 1;
 		break;
 	}
     }
 
-    debug_return_int(rval);
+    debug_return_int(ret);
 }
 
 /* Hook deregistration internals. */
@@ -189,7 +188,7 @@ deregister_hook_internal(struct sudo_hook_list *head,
     int (*hook_fn)(), void *closure)
 {
     struct sudo_hook_entry *hook, *prev = NULL;
-    debug_decl(deregister_hook_internal, SUDO_DEBUG_HOOKS)
+    debug_decl(deregister_hook_internal, SUDO_DEBUG_HOOKS);
 
     SLIST_FOREACH(hook, head, entries) {
 	if (hook->u.generic_fn == hook_fn && hook->closure == closure) {
@@ -211,12 +210,12 @@ deregister_hook_internal(struct sudo_hook_list *head,
 int
 deregister_hook(struct sudo_hook *hook)
 {
-    int rval = 0;
-    debug_decl(deregister_hook, SUDO_DEBUG_HOOKS)
+    int ret = 0;
+    debug_decl(deregister_hook, SUDO_DEBUG_HOOKS);
 
     if (SUDO_API_VERSION_GET_MAJOR(hook->hook_version) != SUDO_HOOK_VERSION_MAJOR) {
 	/* Major versions must match. */
-	rval = -1;
+	ret = -1;
     } else {
 	switch (hook->hook_type) {
 	    case SUDO_HOOK_GETENV:
@@ -237,10 +236,10 @@ deregister_hook(struct sudo_hook *hook)
 		break;
 	    default:
 		/* XXX - use define for unknown value */
-		rval = 1;
+		ret = 1;
 		break;
 	}
     }
 
-    debug_return_int(rval);
+    debug_return_int(ret);
 }

@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2011-2013 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2011-2016 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +18,6 @@
 
 #include <config.h>
 
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #ifdef HAVE_STDBOOL_H
@@ -24,14 +25,7 @@
 #else
 # include "compat/stdbool.h"
 #endif /* HAVE_STDBOOL_H */
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
-#include <grp.h>
-#include <pwd.h>
+#include <string.h>
 
 #define SUDO_ERROR_WRAP 0
 
@@ -43,13 +37,14 @@
 #include "sudo_util.h"
 #include <gram.h>
 
-__dso_public int main(int argc, char *argv[]);
+sudo_dso_public int main(int argc, char *argv[]);
 
 /*
  * TODO: test realloc
  */
 
 YYSTYPE sudoerslval;
+bool sudoers_strict;
 
 struct fill_test {
     const char *input;
@@ -175,13 +170,11 @@ main(int argc, char *argv[])
 
     initprogname(argc > 0 ? argv[0] : "check_fill");
 
-    errors += do_tests(check_fill, txt_data, sizeof(txt_data) / sizeof(txt_data[0]));
-    errors += do_tests(check_fill_cmnd, cmd_data, sizeof(cmd_data) / sizeof(cmd_data[0]));
-    errors += do_tests(check_fill_args, args_data, sizeof(args_data) / sizeof(args_data[0]));
+    errors += do_tests(check_fill, txt_data, nitems(txt_data));
+    errors += do_tests(check_fill_cmnd, cmd_data, nitems(cmd_data));
+    errors += do_tests(check_fill_args, args_data, nitems(args_data));
 
-    ntests = sizeof(txt_data) / sizeof(txt_data[0]) +
-	sizeof(cmd_data) / sizeof(cmd_data[0]) +
-	sizeof(args_data) / sizeof(args_data[0]);
+    ntests = nitems(txt_data) + nitems(cmd_data) + nitems(args_data);
     printf("%s: %d tests run, %d errors, %d%% success rate\n", getprogname(),
 	ntests, errors, (ntests - errors) * 100 / ntests);
 

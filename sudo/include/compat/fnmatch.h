@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2011 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2011 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,7 +27,7 @@
 #define	FNM_LEADING_DIR	(1 << 3)	/* Only match the leading directory */
 #define	FNM_CASEFOLD	(1 << 4)	/* Case insensitive matching */
 
-__dso_public int sudo_fnmatch(const char *pattern, const char *string, int flags);
+sudo_dso_public int sudo_fnmatch(const char *pattern, const char *string, int flags);
 
 #define fnmatch(_a, _b, _c)	sudo_fnmatch((_a), (_b), (_c))
 

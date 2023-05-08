@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 1993-1996, 1998-2016 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 1993-1996, 1998-2020 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +20,11 @@
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #ifdef __TANDEM
 # include <floss.h>
 #endif
@@ -30,19 +37,12 @@
 #include <sys/socket.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <unistd.h>
 #include <pwd.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <signal.h>
 #include <grp.h>
-#include <time.h>
 #include <netdb.h>
 #ifdef HAVE_LOGIN_CAP_H
 # include <login_cap.h>
@@ -57,45 +57,45 @@
 # include <selinux/selinux.h>
 #endif
 #include <ctype.h>
-
-#include "sudoers.h"
-#include "auth/sudo_auth.h"
-
 #ifndef HAVE_GETADDRINFO
 # include "compat/getaddrinfo.h"
 #endif
 
+#include "sudoers.h"
+#include "parse.h"
+#include "auth/sudo_auth.h"
+#include "sudo_iolog.h"
+
 /*
  * Prototypes
  */
-static char *find_editor(int nfiles, char **files, int *argc_out, char ***argv_out);
-static bool cb_runas_default(const char *);
-static bool cb_sudoers_locale(const char *);
 static int set_cmnd(void);
 static int create_admin_success_flag(void);
 static bool init_vars(char * const *);
-static bool set_fqdn(void);
 static bool set_loginclass(struct passwd *);
 static bool set_runasgr(const char *, bool);
 static bool set_runaspw(const char *, bool);
 static bool tty_present(void);
+static void set_callbacks(void);
 
 /*
  * Globals
  */
 struct sudo_user sudo_user;
 struct passwd *list_pw;
-int long_list;
 uid_t timestamp_uid;
+gid_t timestamp_gid;
 #ifdef HAVE_BSD_AUTH_H
 char *login_style;
 #endif /* HAVE_BSD_AUTH_H */
+bool force_umask;
 int sudo_mode;
 
 static char *prev_user;
-static char *runas_user;
-static char *runas_group;
 static struct sudo_nss_list *snl;
+static bool unknown_runas_uid;
+static bool unknown_runas_gid;
+static int cmnd_status = -1;
 
 #ifdef __linux__
 static struct rlimit nproclimit;
@@ -104,6 +104,12 @@ static struct rlimit nproclimit;
 /* XXX - must be extern for audit bits of sudo_auth.c */
 int NewArgc;
 char **NewArgv;
+
+#ifdef SUDOERS_LOG_CLIENT
+# define remote_iologs	(!SLIST_EMPTY(&def_log_servers))
+#else
+# define remote_iologs	0
+#endif
 
 /*
  * Unlimit the number of processes since Linux's setuid() will
@@ -115,15 +121,15 @@ unlimit_nproc(void)
 {
 #ifdef __linux__
     struct rlimit rl;
-    debug_decl(unlimit_nproc, SUDOERS_DEBUG_UTIL)
+    debug_decl(unlimit_nproc, SUDOERS_DEBUG_UTIL);
 
     if (getrlimit(RLIMIT_NPROC, &nproclimit) != 0)
-	    sudo_warn("getrlimit");
+	    sudo_warn("getrlimit(RLIMIT_NPROC)");
     rl.rlim_cur = rl.rlim_max = RLIM_INFINITY;
     if (setrlimit(RLIMIT_NPROC, &rl) != 0) {
 	rl.rlim_cur = rl.rlim_max = nproclimit.rlim_max;
 	if (setrlimit(RLIMIT_NPROC, &rl) != 0)
-	    sudo_warn("setrlimit");
+	    sudo_warn("setrlimit(RLIMIT_NPROC)");
     }
     debug_return;
 #endif /* __linux__ */
@@ -136,22 +142,25 @@ static void
 restore_nproc(void)
 {
 #ifdef __linux__
-    debug_decl(restore_nproc, SUDOERS_DEBUG_UTIL)
+    debug_decl(restore_nproc, SUDOERS_DEBUG_UTIL);
 
     if (setrlimit(RLIMIT_NPROC, &nproclimit) != 0)
-	sudo_warn("setrlimit");
+	sudo_warn("setrlimit(RLIMIT_NPROC)");
 
     debug_return;
 #endif /* __linux__ */
 }
 
 int
-sudoers_policy_init(void *info, char * const envp[])
+sudoers_init(void *info, char * const envp[])
 {
     struct sudo_nss *nss, *nss_next;
-    int sources = 0;
-    int rval = -1;
-    debug_decl(sudoers_policy_init, SUDOERS_DEBUG_PLUGIN)
+    int oldlocale, sources = 0;
+    static int ret = -1;
+    debug_decl(sudoers_init, SUDOERS_DEBUG_PLUGIN);
+
+    if (ret == true)
+	debug_return_int(true);
 
     bindtextdomain("sudoers", LOCALEDIR);
 
@@ -164,12 +173,12 @@ sudoers_policy_init(void *info, char * const envp[])
 
     /* Setup defaults data structures. */
     if (!init_defaults()) {
-	sudo_warnx(U_("unable to initialize sudoers default values"));
+	sudo_warnx("%s", U_("unable to initialize sudoers default values"));
 	debug_return_int(-1);
     }
 
     /* Parse info from front-end. */
-    sudo_mode = sudoers_policy_deserialize_info(info, &runas_user, &runas_group);
+    sudo_mode = sudoers_policy_deserialize_info(info);
     if (ISSET(sudo_mode, MODE_ERROR))
 	debug_return_int(-1);
 
@@ -183,83 +192,151 @@ sudoers_policy_init(void *info, char * const envp[])
     if (!set_perms(PERM_ROOT))
 	debug_return_int(-1);
 
-    /* Open and parse sudoers, set global defaults */
+    /*
+     * Open and parse sudoers, set global defaults.
+     * Uses the C locale unless another is specified in sudoers.
+     */
+    sudoers_setlocale(SUDOERS_LOCALE_SUDOERS, &oldlocale);
+    sudo_warn_set_locale_func(sudoers_warn_setlocale);
+    init_parser(sudoers_file, false, false);
     TAILQ_FOREACH_SAFE(nss, snl, entries, nss_next) {
-        if (nss->open(nss) == 0 && nss->parse(nss) == 0) {
-            sources++;
-            if (nss->setdefs(nss) != 0) {
-                log_warningx(SLOG_SEND_MAIL|SLOG_NO_STDERR,
-		    N_("problem with defaults entries"));
-	    }
-        } else {
-	    /* XXX - used to send mail for sudoers parse errors. */
+	if (nss->open(nss) == -1 || (nss->parse_tree = nss->parse(nss)) == NULL) {
 	    TAILQ_REMOVE(snl, nss, entries);
-        }
+	    continue;
+	}
+
+	sources++;
+	if (nss->getdefs(nss) == -1 || !update_defaults(nss->parse_tree, NULL,
+	    SETDEF_GENERIC|SETDEF_HOST|SETDEF_USER|SETDEF_RUNAS, false)) {
+	    log_warningx(SLOG_SEND_MAIL|SLOG_NO_STDERR,
+		N_("problem with defaults entries"));
+	}
     }
     if (sources == 0) {
-	sudo_warnx(U_("no valid sudoers sources found, quitting"));
+	sudo_warnx("%s", U_("no valid sudoers sources found, quitting"));
 	goto cleanup;
     }
 
-    /* XXX - collect post-sudoers parse settings into a function */
-
-    /*
-     * Initialize external group plugin, if any.
-     */
-    if (def_group_plugin) {
-	if (group_plugin_load(def_group_plugin) != true)
-	    def_group_plugin = NULL;
-    }
-
-    /*
-     * Set runas passwd/group entries based on command line or sudoers.
-     * Note that if runas_group was specified without runas_user we
-     * defer setting runas_pw so the match routines know to ignore it.
-     */
-    /* XXX - qpm4u does more here as it may have already set runas_pw */
-    if (runas_group != NULL) {
-	if (!set_runasgr(runas_group, false))
-	    goto cleanup;
-	if (runas_user != NULL) {
-	    if (!set_runaspw(runas_user, false))
-		goto cleanup;
-	}
-    } else {
-	if (!set_runaspw(runas_user ? runas_user : def_runas_default, false))
-	    goto cleanup;
-    }
-
-    if (!update_defaults(SETDEF_RUNAS)) {
-	log_warningx(SLOG_SEND_MAIL|SLOG_NO_STDERR,
-	    N_("problem with defaults entries"));
-    }
-
-    if (def_fqdn)
-	set_fqdn();	/* deferred until after sudoers is parsed */
-
-    /* Set login class if applicable. */
+    /* Set login class if applicable (after sudoers is parsed). */
     if (set_loginclass(runas_pw ? runas_pw : sudo_user.pw))
-	rval = true;
+	ret = true;
 
 cleanup:
     if (!restore_perms())
-	rval = -1;
+	ret = -1;
 
-    debug_return_int(rval);
+    /* Restore user's locale. */
+    sudo_warn_set_locale_func(NULL);
+    sudoers_setlocale(oldlocale, NULL);
+
+    debug_return_int(ret);
+}
+
+/*
+ * Expand I/O log dir and file into a full path.
+ * Returns the full I/O log path prefixed with "iolog_path=".
+ * Sets sudo_user.iolog_file as a side effect.
+ */
+static char *
+format_iolog_path(void)
+{
+    char dir[PATH_MAX], file[PATH_MAX];
+    char *iolog_path = NULL;
+    int oldlocale;
+    bool ok;
+    debug_decl(format_iolog_path, SUDOERS_DEBUG_PLUGIN);
+
+    /* Use sudoers locale for strftime() */
+    sudoers_setlocale(SUDOERS_LOCALE_SUDOERS, &oldlocale);
+    ok = expand_iolog_path(def_iolog_dir, dir, sizeof(dir),
+	&sudoers_iolog_path_escapes[1], NULL);
+    if (ok) {
+	ok = expand_iolog_path(def_iolog_file, file, sizeof(file),
+	    &sudoers_iolog_path_escapes[0], dir);
+    }
+    sudoers_setlocale(oldlocale, NULL);
+    if (!ok)
+	goto done;
+
+    if (asprintf(&iolog_path, "iolog_path=%s/%s", dir, file) == -1) {
+	iolog_path = NULL;
+	goto done;
+    }
+
+    /* Stash pointer to the I/O log for the event log. */
+    sudo_user.iolog_path = iolog_path + sizeof("iolog_path=") - 1;
+    sudo_user.iolog_file = sudo_user.iolog_path + 1 + strlen(dir);
+
+done:
+    debug_return_str(iolog_path);
+}
+
+static int
+check_user_runchroot(void)
+{
+    debug_decl(check_user_runchroot, SUDOERS_DEBUG_PLUGIN);
+
+    if (user_runchroot == NULL)
+	debug_return_bool(true);
+
+    sudo_debug_printf(SUDO_DEBUG_INFO|SUDO_DEBUG_LINENO,
+	"def_runchroot %s, user_runchroot %s",
+	def_runchroot ? def_runchroot : "none",
+	user_runchroot ? user_runchroot : "none");
+
+    if (def_runchroot == NULL || (strcmp(def_runchroot, "*") != 0 &&
+	    strcmp(def_runchroot, user_runchroot) != 0)) {
+	log_warningx(SLOG_NO_STDERR|SLOG_AUDIT,
+	    N_("user not allowed to change root directory to %s"),
+	    user_runchroot);
+	sudo_warnx(U_("you are not permitted to use the -R option with %s"),
+	    user_cmnd);
+	debug_return_bool(false);
+    }
+    free(def_runchroot);
+    if ((def_runchroot = strdup(user_runchroot)) == NULL) {
+	sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
+	debug_return_int(-1);
+    }
+    debug_return_bool(true);
+}
+
+static int
+check_user_runcwd(void)
+{
+    debug_decl(check_user_runcwd, SUDOERS_DEBUG_PLUGIN);
+
+    sudo_debug_printf(SUDO_DEBUG_INFO|SUDO_DEBUG_LINENO,
+	"def_runcwd %s, user_runcwd %s, user_cwd %s",
+	def_runcwd ? def_runcwd : "none", user_runcwd ? user_runcwd : "none",
+	user_cwd ? user_cwd : "none");
+
+    if (strcmp(user_cwd, user_runcwd) != 0) {
+	if (def_runcwd == NULL || strcmp(def_runcwd, "*") != 0) {
+	    log_warningx(SLOG_NO_STDERR|SLOG_AUDIT,
+		N_("user not allowed to change directory to %s"), user_runcwd);
+	    sudo_warnx(U_("you are not permitted to use the -D option with %s"),
+		user_cmnd);
+	    debug_return_bool(false);
+	}
+	free(def_runcwd);
+	if ((def_runcwd = strdup(user_runcwd)) == NULL) {
+	    sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
+	    debug_return_int(-1);
+	}
+    }
+    debug_return_bool(true);
 }
 
 int
 sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
-    void *closure)
+    bool verbose, void *closure)
 {
-    char **edit_argv = NULL;
     char *iolog_path = NULL;
-    mode_t cmnd_umask = 0777;
+    mode_t cmnd_umask = ACCESSPERMS;
     struct sudo_nss *nss;
-    bool nopass = false;
-    int cmnd_status = -1, oldlocale, validated;
-    int rval = -1;
-    debug_decl(sudoers_policy_main, SUDOERS_DEBUG_PLUGIN)
+    int oldlocale, validated, ret = -1;
+    debug_decl(sudoers_policy_main, SUDOERS_DEBUG_PLUGIN);
 
     sudo_warn_set_locale_func(sudoers_warn_setlocale);
 
@@ -267,13 +344,14 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 
     /* Is root even allowed to run sudo? */
     if (user_uid == 0 && !def_root_sudo) {
-	/* Not an audit event. */
-        sudo_warnx(U_("sudoers specifies that root is not allowed to sudo"));
-        goto bad;
-    }    
+	/* Not an audit event (should it be?). */
+	sudo_warnx("%s",
+	    U_("sudoers specifies that root is not allowed to sudo"));
+	goto bad;
+    }
 
     if (!set_perms(PERM_INITIAL))
-        goto bad;
+	goto bad;
 
     /* Environment variables specified on the command line. */
     if (env_add != NULL && env_add[0] != NULL)
@@ -290,6 +368,7 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 	    sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
 	    goto done;
 	}
+	sudoers_gc_add(GC_VECTOR, NewArgv);
 	NewArgv[0] = user_cmnd;
 	NewArgv[1] = NULL;
     } else {
@@ -300,15 +379,17 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 	    sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
 	    goto done;
 	}
-	memcpy(++NewArgv, argv, argc * sizeof(char *));
+	sudoers_gc_add(GC_VECTOR, NewArgv);
+	NewArgv++;	/* reserve an extra slot for --login */
+	memcpy(NewArgv, argv, argc * sizeof(char *));
 	NewArgv[NewArgc] = NULL;
 	if (ISSET(sudo_mode, MODE_LOGIN_SHELL) && runas_pw != NULL) {
 	    NewArgv[0] = strdup(runas_pw->pw_shell);
 	    if (NewArgv[0] == NULL) {
 		sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
-		free(NewArgv);
 		goto done;
 	    }
+	    sudoers_gc_add(GC_PTR, NewArgv[0]);
 	}
     }
 
@@ -324,8 +405,9 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
     /* Check for -C overriding def_closefrom. */
     if (user_closefrom >= 0 && user_closefrom != def_closefrom) {
 	if (!def_closefrom_override) {
-	    /* XXX - audit? */
-	    sudo_warnx(U_("you are not permitted to use the -C option"));
+	    log_warningx(SLOG_NO_STDERR|SLOG_AUDIT,
+		N_("user not allowed to override closefrom limit"));
+	    sudo_warnx("%s", U_("you are not permitted to use the -C option"));
 	    goto bad;
 	}
 	def_closefrom = user_closefrom;
@@ -335,52 +417,11 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
      * Check sudoers sources, using the locale specified in sudoers.
      */
     sudoers_setlocale(SUDOERS_LOCALE_SUDOERS, &oldlocale);
-    validated = FLAG_NO_USER | FLAG_NO_HOST;
-    TAILQ_FOREACH(nss, snl, entries) {
-	validated = nss->lookup(nss, validated, pwflag);
-
-	/*
-	 * The NOPASSWD tag needs special handling among all sources
-	 * in -l or -v mode.
-	 */
-	if (pwflag) {
-	    enum def_tuple pwcheck =
-		(pwflag == -1) ? never : sudo_defs_table[pwflag].sd_un.tuple;
-	    switch (pwcheck) {
-	    case all:
-		if (!ISSET(validated, FLAG_NOPASSWD))
-		    nopass = false;
-		break;
-	    case any:
-		if (ISSET(validated, FLAG_NOPASSWD))
-		    nopass = true;
-		break;
-	    case never:
-		nopass = true;
-		break;
-	    case always:
-		nopass = false;
-		break;
-	    default:
-		break;
-	    }
-	}
-
-	if (ISSET(validated, VALIDATE_ERROR)) {
-	    /* The lookup function should have printed an error. */
-	    goto done;
-	} else if (ISSET(validated, VALIDATE_SUCCESS)) {
-	    /* Handle [SUCCESS=return] */
-	    if (nss->ret_if_found)
-		break;
-	} else {
-	    /* Handle [NOTFOUND=return] */
-	    if (nss->ret_if_notfound)
-		break;
-	}
+    validated = sudoers_lookup(snl, sudo_user.pw, &cmnd_status, pwflag);
+    if (ISSET(validated, VALIDATE_ERROR)) {
+	/* The lookup function should have printed an error. */
+	goto done;
     }
-    if (pwflag && nopass)
-	def_authenticate = false;
 
     /* Restore user's locale. */
     sudoers_setlocale(oldlocale, NULL);
@@ -392,9 +433,15 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 	}
     }
 
-    /* If only a group was specified, set runas_pw based on invoking user. */
-    if (runas_pw == NULL) {
-	if (!set_runaspw(user_name, false)) {
+    /* Defer uid/gid checks until after defaults have been updated. */
+    if (unknown_runas_uid && !def_runas_allow_unknown_id) {
+	log_warningx(SLOG_AUDIT, N_("unknown user: %s"), runas_pw->pw_name);
+	goto done;
+    }
+    if (runas_gr != NULL) {
+	if (unknown_runas_gid && !def_runas_allow_unknown_id) {
+	    log_warningx(SLOG_AUDIT, N_("unknown group: %s"),
+		runas_gr->gr_name);
 	    goto done;
 	}
     }
@@ -407,7 +454,7 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 
 	if (*def_timestampowner == '#') {
 	    const char *errstr;
-	    uid_t uid = sudo_strtoid(def_timestampowner + 1, NULL, NULL, &errstr);
+	    uid_t uid = sudo_strtoid(def_timestampowner + 1, &errstr);
 	    if (errstr == NULL)
 		pw = sudo_getpwuid(uid);
 	}
@@ -415,25 +462,36 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 	    pw = sudo_getpwnam(def_timestampowner);
 	if (pw != NULL) {
 	    timestamp_uid = pw->pw_uid;
+	    timestamp_gid = pw->pw_gid;
 	    sudo_pw_delref(pw);
 	} else {
+	    /* XXX - audit too? */
 	    log_warningx(SLOG_SEND_MAIL,
 		N_("timestamp owner (%s): No such user"), def_timestampowner);
 	    timestamp_uid = ROOT_UID;
+	    timestamp_gid = ROOT_GID;
 	}
     }
 
     /* If no command line args and "shell_noargs" is not set, error out. */
     if (ISSET(sudo_mode, MODE_IMPLIED_SHELL) && !def_shell_noargs) {
 	/* Not an audit event. */
-	rval = -2; /* usage error */
+	ret = -2; /* usage error */
 	goto done;
     }
 
     /* Bail if a tty is required and we don't have one.  */
     if (def_requiretty && !tty_present()) {
-	audit_failure(NewArgc, NewArgv, N_("no tty"));
-	sudo_warnx(U_("sorry, you must have a tty to run sudo"));
+	log_warningx(SLOG_NO_STDERR|SLOG_AUDIT, N_("no tty"));
+	sudo_warnx("%s", U_("sorry, you must have a tty to run sudo"));
+	goto bad;
+    }
+
+    /* Check runas user's shell. */
+    if (!check_user_shell(runas_pw)) {
+	log_warningx(SLOG_RAW_MSG|SLOG_AUDIT,
+	    N_("invalid shell for user %s: %s"),
+	    runas_pw->pw_name, runas_pw->pw_shell);
 	goto bad;
     }
 
@@ -450,19 +508,46 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 	goto bad;
 
     /* Require a password if sudoers says so.  */
-    rval = check_user(validated, sudo_mode);
-    if (rval != true) {
+    switch (check_user(validated, sudo_mode)) {
+    case true:
+	/* user authenticated successfully. */
+	break;
+    case false:
 	/* Note: log_denial() calls audit for us. */
 	if (!ISSET(validated, VALIDATE_SUCCESS)) {
-	    if (!log_denial(validated, false))
-		rval = -1;
+	    /* Only display a denial message if no password was read. */
+	    if (!log_denial(validated, def_passwd_tries <= 0))
+		goto done;
 	}
+	goto bad;
+    default:
+	/* some other error, ret is -1. */
+	goto done;
+    }
+
+    /* Check whether user_runchroot is permitted (if specified). */
+    switch (check_user_runchroot()) {
+    case true:
+	break;
+    case false:
+	goto bad;
+    default:
+	goto done;
+    }
+
+    /* Check whether user_runcwd is permitted (if specified). */
+    switch (check_user_runcwd()) {
+    case true:
+	break;
+    case false:
+	goto bad;
+    default:
 	goto done;
     }
 
     /* If run as root with SUDO_USER set, set sudo_user.pw to that user. */
     /* XXX - causes confusion when root is not listed in sudoers */
-    if (sudo_mode & (MODE_RUN | MODE_EDIT) && prev_user != NULL) {
+    if (ISSET(sudo_mode, MODE_RUN|MODE_EDIT) && prev_user != NULL) {
 	if (user_uid == 0 && strcmp(prev_user, "root") != 0) {
 	    struct passwd *pw;
 
@@ -488,27 +573,38 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 
     /* Finally tell the user if the command did not exist. */
     if (cmnd_status == NOT_FOUND_DOT) {
-	audit_failure(NewArgc, NewArgv, N_("command in current directory"));
-	sudo_warnx(U_("ignoring `%s' found in '.'\nUse `sudo ./%s' if this is the `%s' you wish to run."), user_cmnd, user_cmnd, user_cmnd);
+	audit_failure(NewArgv, N_("command in current directory"));
+	sudo_warnx(U_("ignoring \"%s\" found in '.'\nUse \"sudo ./%s\" if this is the \"%s\" you wish to run."), user_cmnd, user_cmnd, user_cmnd);
 	goto bad;
     } else if (cmnd_status == NOT_FOUND) {
 	if (ISSET(sudo_mode, MODE_CHECK)) {
-	    audit_failure(NewArgc, NewArgv, N_("%s: command not found"),
+	    audit_failure(NewArgv, N_("%s: command not found"),
 		NewArgv[0]);
 	    sudo_warnx(U_("%s: command not found"), NewArgv[0]);
 	} else {
-	    audit_failure(NewArgc, NewArgv, N_("%s: command not found"),
+	    audit_failure(NewArgv, N_("%s: command not found"),
 		user_cmnd);
 	    sudo_warnx(U_("%s: command not found"), user_cmnd);
 	}
 	goto bad;
     }
 
+    /* If user specified a timeout make sure sudoers allows it. */
+    if (!def_user_command_timeouts && user_timeout > 0) {
+	log_warningx(SLOG_NO_STDERR|SLOG_AUDIT,
+	    N_("user not allowed to set a command timeout"));
+	sudo_warnx("%s",
+	    U_("sorry, you are not allowed set a command timeout"));
+	goto bad;
+    }
+
     /* If user specified env vars make sure sudoers allows it. */
     if (ISSET(sudo_mode, MODE_RUN) && !def_setenv) {
 	if (ISSET(sudo_mode, MODE_PRESERVE_ENV)) {
-	    /* XXX - audit? */
-	    sudo_warnx(U_("sorry, you are not allowed to preserve the environment"));
+	    log_warningx(SLOG_NO_STDERR|SLOG_AUDIT,
+		N_("user not allowed to preserve the environment"));
+	    sudo_warnx("%s",
+		U_("sorry, you are not allowed to preserve the environment"));
 	    goto bad;
 	} else {
 	    if (!validate_env_vars(sudo_user.env_vars))
@@ -516,34 +612,30 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 	}
     }
 
-    if (ISSET(sudo_mode, (MODE_RUN | MODE_EDIT))) {
+    if (ISSET(sudo_mode, (MODE_RUN | MODE_EDIT)) && !remote_iologs) {
 	if ((def_log_input || def_log_output) && def_iolog_file && def_iolog_dir) {
-	    const char prefix[] = "iolog_path=";
-	    iolog_path = expand_iolog_path(prefix, def_iolog_dir,
-		def_iolog_file, &sudo_user.iolog_file);
-	    if (iolog_path == NULL)
-		goto done;
-	    sudo_user.iolog_file++;
+	    if ((iolog_path = format_iolog_path()) == NULL) {
+		if (!def_ignore_iolog_errors)
+		    goto done;
+		/* Unable to expand I/O log path, disable I/O logging. */
+		def_log_input = false;
+		def_log_output = false;
+	    }
 	}
     }
 
-    if (!log_allowed(validated))
-	goto bad;
-
     switch (sudo_mode & MODE_MASK) {
 	case MODE_CHECK:
-	    rval = display_cmnd(snl, list_pw ? list_pw : sudo_user.pw);
+	    ret = display_cmnd(snl, list_pw ? list_pw : sudo_user.pw);
 	    break;
 	case MODE_LIST:
-	    rval = display_privs(snl, list_pw ? list_pw : sudo_user.pw);
+	    ret = display_privs(snl, list_pw ? list_pw : sudo_user.pw, verbose);
 	    break;
 	case MODE_VALIDATE:
-	    /* Nothing to do. */
-	    rval = true;
-	    break;
 	case MODE_RUN:
 	case MODE_EDIT:
-	    /* rval set by sudoers_policy_exec_setup() below. */
+	    /* ret may be overridden by "goto bad" later */
+	    ret = true;
 	    break;
 	default:
 	    /* Should not happen. */
@@ -557,9 +649,10 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
     }
     if (def_group_plugin)
 	group_plugin_unload();
+    init_parser(NULL, false, false);
 
     if (ISSET(sudo_mode, (MODE_VALIDATE|MODE_CHECK|MODE_LIST))) {
-	/* rval already set appropriately */
+	/* ret already set appropriately */
 	goto done;
     }
 
@@ -568,7 +661,7 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
      * If user's umask is more restrictive, OR in those bits too
      * unless umask_override is set.
      */
-    if (def_umask != 0777) {
+    if (def_umask != ACCESSPERMS) {
 	cmnd_umask = def_umask;
 	if (!def_umask_override)
 	    cmnd_umask |= user_umask;
@@ -600,7 +693,7 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 
 #if defined(_AIX) || (defined(__linux__) && !defined(HAVE_PAM))
 	/* Insert system-wide environment variables. */
-	if (!read_env_file(_PATH_ENVIRONMENT, true))
+	if (!read_env_file(_PATH_ENVIRONMENT, true, false))
 	    sudo_warn("%s", _PATH_ENVIRONMENT);
 #endif
 #ifdef HAVE_LOGIN_CAP_H
@@ -616,8 +709,12 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
     }
 
     /* Insert system-wide environment variables. */
+    if (def_restricted_env_file) {
+	if (!read_env_file(def_restricted_env_file, false, true))
+	    sudo_warn("%s", def_restricted_env_file);
+    }
     if (def_env_file) {
-	if (!read_env_file(def_env_file, false))
+	if (!read_env_file(def_env_file, false, false))
 	    sudo_warn("%s", def_env_file);
     }
 
@@ -627,41 +724,48 @@ sudoers_policy_main(int argc, char * const argv[], int pwflag, char *env_add[],
 
     /* Note: must call audit before uid change. */
     if (ISSET(sudo_mode, MODE_EDIT)) {
+	char **edit_argv;
 	int edit_argc;
+	const char *env_editor;
 
 	free(safe_cmnd);
 	safe_cmnd = find_editor(NewArgc - 1, NewArgv + 1, &edit_argc,
-	    &edit_argv);
+	    &edit_argv, NULL, &env_editor, false);
 	if (safe_cmnd == NULL) {
 	    if (errno != ENOENT)
 		goto done;
+	    audit_failure(NewArgv, N_("%s: command not found"),
+		env_editor ? env_editor : def_editor);
+	    sudo_warnx(U_("%s: command not found"),
+		env_editor ? env_editor : def_editor);
 	    goto bad;
 	}
-	if (audit_success(edit_argc, edit_argv) != 0)
-	    goto done;
+	sudoers_gc_add(GC_VECTOR, edit_argv);
+	NewArgv = edit_argv;
+	NewArgc = edit_argc;
 
 	/* We want to run the editor with the unmodified environment. */
 	env_swap_old();
-    } else {
-	if (audit_success(NewArgc, NewArgv) != 0)
-	    goto done;
     }
-
-    /* Setup execution environment to pass back to front-end. */
-    rval = sudoers_policy_exec_setup(edit_argv ? edit_argv : NewArgv,
-	env_get(), cmnd_umask, iolog_path, closure);
-
-    /* Zero out stashed copy of environment, it is owned by the front-end. */
-    (void)env_init(NULL);
 
     goto done;
 
 bad:
-    rval = false;
+    ret = false;
 
 done:
+    if (ret == -1) {
+	/* Free stashed copy of the environment. */
+	(void)env_init(NULL);
+    } else {
+	/* Store settings to pass back to front-end. */
+	if (!sudoers_policy_store_result(ret, NewArgv, env_get(), cmnd_umask,
+		iolog_path, closure))
+	    ret = -1;
+    }
+
     if (!rewind_perms())
-	rval = -1;
+	ret = -1;
 
     restore_nproc();
 
@@ -671,47 +775,54 @@ done:
 
     sudo_warn_set_locale_func(NULL);
 
-    debug_return_int(rval);
+    debug_return_int(ret);
 }
 
 /*
- * Initialize timezone and fill in ``sudo_user'' struct.
+ * Initialize timezone and fill in sudo_user struct.
  */
 static bool
 init_vars(char * const envp[])
 {
     char * const * ep;
     bool unknown_user = false;
-    debug_decl(init_vars, SUDOERS_DEBUG_PLUGIN)
+    debug_decl(init_vars, SUDOERS_DEBUG_PLUGIN);
 
     if (!sudoers_initlocale(setlocale(LC_ALL, NULL), def_sudoers_locale)) {
 	sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
 	debug_return_bool(false);
     }
 
+#define MATCHES(s, v)	\
+    (strncmp((s), (v), sizeof(v) - 1) == 0 && (s)[sizeof(v) - 1] != '\0')
+
     for (ep = envp; *ep; ep++) {
-	/* XXX - don't fill in if empty string */
 	switch (**ep) {
 	    case 'K':
-		if (strncmp("KRB5CCNAME=", *ep, 11) == 0)
-		    user_ccname = *ep + 11;
+		if (MATCHES(*ep, "KRB5CCNAME="))
+		    user_ccname = *ep + sizeof("KRB5CCNAME=") - 1;
 		break;
 	    case 'P':
-		if (strncmp("PATH=", *ep, 5) == 0)
-		    user_path = *ep + 5;
+		if (MATCHES(*ep, "PATH="))
+		    user_path = *ep + sizeof("PATH=") - 1;
 		break;
 	    case 'S':
-		if (!user_prompt && strncmp("SUDO_PROMPT=", *ep, 12) == 0)
-		    user_prompt = *ep + 12;
-		else if (strncmp("SUDO_USER=", *ep, 10) == 0)
-		    prev_user = *ep + 10;
+		if (MATCHES(*ep, "SUDO_PROMPT=")) {
+		    /* Don't override "sudo -p prompt" */
+		    if (user_prompt == NULL)
+			user_prompt = *ep + sizeof("SUDO_PROMPT=") - 1;
+		    break;
+		}
+		if (MATCHES(*ep, "SUDO_USER="))
+		    prev_user = *ep + sizeof("SUDO_USER=") - 1;
 		break;
 	    }
     }
+#undef MATCHES
 
     /*
-     * Get a local copy of the user's struct passwd if we don't already
-     * have one.
+     * Get a local copy of the user's passwd struct and group list if we
+     * don't already have them.
      */
     if (sudo_user.pw == NULL) {
 	if ((sudo_user.pw = sudo_getpwnam(user_name)) == NULL) {
@@ -730,23 +841,15 @@ init_vars(char * const envp[])
 	    unknown_user = true;
 	}
     }
+    if (user_gid_list == NULL)
+	user_gid_list = sudo_get_gidlist(sudo_user.pw, ENTRY_TYPE_ANY);
 
-    /*
-     * Get group list and store initialize permissions.
-     */
-    if (user_group_list == NULL)
-	user_group_list = sudo_get_grlist(sudo_user.pw);
+    /* Store initialize permissions so we can restore them later. */
     if (!set_perms(PERM_INITIAL))
 	debug_return_bool(false);
 
-    /* Set runas callback. */
-    sudo_defs_table[I_RUNAS_DEFAULT].callback = cb_runas_default;
-
-    /* Set locale callback. */
-    sudo_defs_table[I_SUDOERS_LOCALE].callback = cb_sudoers_locale;
-
-    /* Set maxseq callback. */
-    sudo_defs_table[I_MAXSEQ].callback = io_set_max_sessid;
+    /* Set parse callbacks */
+    set_callbacks();
 
     /* It is now safe to use log_warningx() and set_perms() */
     if (unknown_user) {
@@ -754,7 +857,57 @@ init_vars(char * const envp[])
 	    (unsigned int) user_uid);
 	debug_return_bool(false);
     }
+
+    /*
+     * Set runas passwd/group entries based on command line or sudoers.
+     * Note that if runas_group was specified without runas_user we
+     * run the command as the invoking user.
+     */
+    if (sudo_user.runas_group != NULL) {
+	if (!set_runasgr(sudo_user.runas_group, false))
+	    debug_return_bool(false);
+	if (!set_runaspw(sudo_user.runas_user ?
+		sudo_user.runas_user : user_name, false))
+	    debug_return_bool(false);
+    } else {
+	if (!set_runaspw(sudo_user.runas_user ?
+		sudo_user.runas_user : def_runas_default, false))
+	    debug_return_bool(false);
+    }
+
     debug_return_bool(true);
+}
+
+/*
+ * Fill in user_cmnd and user_stat variables.
+ * Does not fill in user_base.
+ */
+int
+set_cmnd_path(const char *runchroot)
+{
+    char *path = user_path;
+    int ret;
+    debug_decl(set_cmnd_path, SUDOERS_DEBUG_PLUGIN);
+
+    if (def_secure_path && !user_is_exempt())
+	path = def_secure_path;
+    if (!set_perms(PERM_RUNAS))
+	debug_return_int(NOT_FOUND_ERROR);
+    ret = find_path(NewArgv[0], &user_cmnd, user_stat, path,
+	runchroot, def_ignore_dot, NULL);
+    if (!restore_perms())
+	debug_return_int(NOT_FOUND_ERROR);
+    if (ret == NOT_FOUND) {
+	/* Failed as root, try as invoking user. */
+	if (!set_perms(PERM_USER))
+	    debug_return_int(false);
+	ret = find_path(NewArgv[0], &user_cmnd, user_stat, path,
+	    runchroot, def_ignore_dot, NULL);
+	if (!restore_perms())
+	    debug_return_int(NOT_FOUND_ERROR);
+    }
+
+    debug_return_int(ret);
 }
 
 /*
@@ -764,9 +917,9 @@ init_vars(char * const envp[])
 static int
 set_cmnd(void)
 {
-    int rval = FOUND;
-    char *path = user_path;
-    debug_decl(set_cmnd, SUDOERS_DEBUG_PLUGIN)
+    struct sudo_nss *nss;
+    int ret = FOUND;
+    debug_decl(set_cmnd, SUDOERS_DEBUG_PLUGIN);
 
     /* Allocate user_stat for find_path() and match functions. */
     user_stat = calloc(1, sizeof(struct stat));
@@ -779,30 +932,20 @@ set_cmnd(void)
     if (user_cmnd == NULL)
 	user_cmnd = NewArgv[0];
 
-    if (sudo_mode & (MODE_RUN | MODE_EDIT | MODE_CHECK)) {
-	if (ISSET(sudo_mode, MODE_RUN | MODE_CHECK)) {
-	    if (def_secure_path && !user_is_exempt())
-		path = def_secure_path;
-	    if (!set_perms(PERM_RUNAS))
-		debug_return_int(-1);
-	    rval = find_path(NewArgv[0], &user_cmnd, user_stat, path,
-		def_ignore_dot, NULL);
-	    if (!restore_perms())
-		debug_return_int(-1);
-	    if (rval == NOT_FOUND) {
-		/* Failed as root, try as invoking user. */
-		if (!set_perms(PERM_USER))
-		    debug_return_int(-1);
-		rval = find_path(NewArgv[0], &user_cmnd, user_stat, path,
-		    def_ignore_dot, NULL);
-		if (!restore_perms())
-		    debug_return_int(-1);
-	    }
-	    if (rval == NOT_FOUND_ERROR) {
-		if (errno == ENAMETOOLONG)
-		    audit_failure(NewArgc, NewArgv, N_("command too long"));
+    if (ISSET(sudo_mode, MODE_RUN|MODE_EDIT|MODE_CHECK)) {
+	if (!ISSET(sudo_mode, MODE_EDIT)) {
+	    const char *runchroot = user_runchroot;
+	    if (runchroot == NULL && def_runchroot != NULL &&
+		    strcmp(def_runchroot, "*") != 0)
+		runchroot = def_runchroot;
+
+	    ret = set_cmnd_path(runchroot);
+	    if (ret == NOT_FOUND_ERROR) {
+		if (errno == ENAMETOOLONG) {
+		    audit_failure(NewArgv, N_("command too long"));
+		}
 		log_warning(0, "%s", NewArgv[0]);
-		debug_return_int(rval);
+		debug_return_int(ret);
 	    }
 	}
 
@@ -816,9 +959,10 @@ set_cmnd(void)
 		size += strlen(*av) + 1;
 	    if (size == 0 || (user_args = malloc(size)) == NULL) {
 		sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
-		debug_return_int(-1);
+		debug_return_int(NOT_FOUND_ERROR);
 	    }
-	    if (ISSET(sudo_mode, MODE_SHELL|MODE_LOGIN_SHELL)) {
+	    if (ISSET(sudo_mode, MODE_SHELL|MODE_LOGIN_SHELL) &&
+		    ISSET(sudo_mode, MODE_RUN)) {
 		/*
 		 * When running a command via a shell, the sudo front-end
 		 * escapes potential meta chars.  We unescape non-spaces
@@ -826,9 +970,21 @@ set_cmnd(void)
 		 */
 		for (to = user_args, av = NewArgv + 1; (from = *av); av++) {
 		    while (*from) {
-			if (from[0] == '\\' && !isspace((unsigned char)from[1]))
+			if (from[0] == '\\' && from[1] != '\0' &&
+				!isspace((unsigned char)from[1])) {
 			    from++;
+			}
+			if (size - (to - user_args) < 1) {
+			    sudo_warnx(U_("internal error, %s overflow"),
+				__func__);
+			    debug_return_int(NOT_FOUND_ERROR);
+			}
 			*to++ = *from++;
+		    }
+		    if (size - (to - user_args) < 1) {
+			sudo_warnx(U_("internal error, %s overflow"),
+			    __func__);
+			debug_return_int(NOT_FOUND_ERROR);
 		    }
 		    *to++ = ' ';
 		}
@@ -838,7 +994,7 @@ set_cmnd(void)
 		    n = strlcpy(to, *av, size - (to - user_args));
 		    if (n >= size - (to - user_args)) {
 			sudo_warnx(U_("internal error, %s overflow"), __func__);
-			debug_return_int(-1);
+			debug_return_int(NOT_FOUND_ERROR);
 		    }
 		    to += n;
 		    *to++ = ' ';
@@ -853,29 +1009,41 @@ set_cmnd(void)
     else
 	user_base = user_cmnd;
 
-    if (!update_defaults(SETDEF_CMND)) {
-	log_warningx(SLOG_SEND_MAIL|SLOG_NO_STDERR,
-	    N_("problem with defaults entries"));
+    /* Convert "sudo sudoedit" -> "sudoedit" */
+    if (ISSET(sudo_mode, MODE_RUN) && strcmp(user_base, "sudoedit") == 0) {
+	CLR(sudo_mode, MODE_RUN);
+	SET(sudo_mode, MODE_EDIT);
+	sudo_warnx("%s", U_("sudoedit doesn't need to be run via sudo"));
+	user_base = user_cmnd = "sudoedit";
     }
 
-    debug_return_int(rval);
+    TAILQ_FOREACH(nss, snl, entries) {
+	if (!update_defaults(nss->parse_tree, NULL, SETDEF_CMND, false)) {
+	    log_warningx(SLOG_SEND_MAIL|SLOG_NO_STDERR,
+		N_("problem with defaults entries"));
+	}
+    }
+
+    debug_return_int(ret);
 }
 
 /*
- * Open sudoers and sanity check mode/owner/type.
+ * Open sudoers file and check mode/owner/type.
  * Returns a handle to the sudoers file or NULL on error.
  */
 FILE *
-open_sudoers(const char *sudoers, bool doedit, bool *keepopen)
+open_sudoers(const char *file, bool doedit, bool *keepopen)
 {
     struct stat sb;
     FILE *fp = NULL;
-    debug_decl(open_sudoers, SUDOERS_DEBUG_PLUGIN)
+    bool perm_root = false;
+    debug_decl(open_sudoers, SUDOERS_DEBUG_PLUGIN);
 
     if (!set_perms(PERM_SUDOERS))
 	debug_return_ptr(NULL);
 
-    switch (sudo_secure_file(sudoers, sudoers_uid, sudoers_gid, &sb)) {
+again:
+    switch (sudo_secure_file(file, sudoers_uid, sudoers_gid, &sb)) {
 	case SUDO_PATH_SECURE:
 	    /*
 	     * If we are expecting sudoers to be group readable by
@@ -884,20 +1052,22 @@ open_sudoers(const char *sudoers, bool doedit, bool *keepopen)
 	     */
 	    if (sudoers_uid == ROOT_UID && ISSET(sudoers_mode, S_IRGRP)) {
 		if (!ISSET(sb.st_mode, S_IRGRP) || sb.st_gid != SUDOERS_GID) {
-		    if (!restore_perms() || !set_perms(PERM_ROOT))
-			debug_return_ptr(NULL);
+		    if (!perm_root) {
+			if (!restore_perms() || !set_perms(PERM_ROOT))
+			    debug_return_ptr(NULL);
+		    }
 		}
 	    }
 	    /*
-	     * Open sudoers and make sure we can read it so we can present
+	     * Open file and make sure we can read it so we can present
 	     * the user with a reasonable error message (unlike the lexer).
 	     */
-	    if ((fp = fopen(sudoers, "r")) == NULL) {
-		log_warning(SLOG_SEND_MAIL, N_("unable to open %s"), sudoers);
+	    if ((fp = fopen(file, "r")) == NULL) {
+		log_warning(SLOG_SEND_MAIL, N_("unable to open %s"), file);
 	    } else {
 		if (sb.st_size != 0 && fgetc(fp) == EOF) {
 		    log_warning(SLOG_SEND_MAIL,
-			N_("unable to read %s"), sudoers);
+			N_("unable to read %s"), file);
 		    fclose(fp);
 		    fp = NULL;
 		} else {
@@ -908,23 +1078,37 @@ open_sudoers(const char *sudoers, bool doedit, bool *keepopen)
 	    }
 	    break;
 	case SUDO_PATH_MISSING:
-	    log_warning(SLOG_SEND_MAIL, N_("unable to stat %s"), sudoers);
+	    /*
+	     * If we tried to stat() sudoers as non-root but got EACCES,
+	     * try again as root.
+	     */
+	    if (errno == EACCES && geteuid() != ROOT_UID) {
+		int serrno = errno;
+		if (restore_perms()) {
+		    if (!set_perms(PERM_ROOT))
+			debug_return_ptr(NULL);
+		    perm_root = true;
+		    goto again;
+		}
+		errno = serrno;
+	    }
+	    log_warning(SLOG_SEND_MAIL, N_("unable to stat %s"), file);
 	    break;
 	case SUDO_PATH_BAD_TYPE:
 	    log_warningx(SLOG_SEND_MAIL,
-		N_("%s is not a regular file"), sudoers);
+		N_("%s is not a regular file"), file);
 	    break;
 	case SUDO_PATH_WRONG_OWNER:
 	    log_warningx(SLOG_SEND_MAIL,
-		N_("%s is owned by uid %u, should be %u"), sudoers,
+		N_("%s is owned by uid %u, should be %u"), file,
 		(unsigned int) sb.st_uid, (unsigned int) sudoers_uid);
 	    break;
 	case SUDO_PATH_WORLD_WRITABLE:
-	    log_warningx(SLOG_SEND_MAIL, N_("%s is world writable"), sudoers);
+	    log_warningx(SLOG_SEND_MAIL, N_("%s is world writable"), file);
 	    break;
 	case SUDO_PATH_GROUP_WRITABLE:
 	    log_warningx(SLOG_SEND_MAIL,
-		N_("%s is owned by gid %u, should be %u"), sudoers,
+		N_("%s is owned by gid %u, should be %u"), file,
 		(unsigned int) sb.st_gid, (unsigned int) sudoers_gid);
 	    break;
 	default:
@@ -949,16 +1133,16 @@ set_loginclass(struct passwd *pw)
 {
     const int errflags = SLOG_RAW_MSG;
     login_cap_t *lc;
-    bool rval = true;
-    debug_decl(set_loginclass, SUDOERS_DEBUG_PLUGIN)
+    bool ret = true;
+    debug_decl(set_loginclass, SUDOERS_DEBUG_PLUGIN);
 
     if (!def_use_loginclass)
 	goto done;
 
     if (login_class && strcmp(login_class, "-") != 0) {
 	if (user_uid != 0 && pw->pw_uid != 0) {
-	    sudo_warnx(U_("only root can use `-c %s'"), login_class);
-	    rval = false;
+	    sudo_warnx(U_("only root can use \"-c %s\""), login_class);
+	    ret = false;
 	    goto done;
 	}
     } else {
@@ -979,11 +1163,11 @@ set_loginclass(struct passwd *pw)
 	log_warningx(errflags, N_("unknown login class: %s"), login_class);
 	def_use_loginclass = false;
 	if (login_class)
-	    rval = false;
+	    ret = false;
     }
     login_close(lc);
 done:
-    debug_return_bool(rval);
+    debug_return_bool(ret);
 }
 #else
 static bool
@@ -1003,29 +1187,30 @@ set_loginclass(struct passwd *pw)
  * Returns true on success, setting longp and shortp.
  * Returns false on failure, longp and shortp are unchanged.
  */
-static bool
+static int
 resolve_host(const char *host, char **longp, char **shortp)
 {
     struct addrinfo *res0, hint;
     char *cp, *lname, *sname;
-    debug_decl(resolve_host, SUDOERS_DEBUG_PLUGIN)
+    int ret;
+    debug_decl(resolve_host, SUDOERS_DEBUG_PLUGIN);
 
     memset(&hint, 0, sizeof(hint));
     hint.ai_family = PF_UNSPEC;
     hint.ai_flags = AI_FQDN;
 
-    if (getaddrinfo(host, NULL, &hint, &res0) != 0)
-	debug_return_bool(false);
+    if ((ret = getaddrinfo(host, NULL, &hint, &res0)) != 0)
+	debug_return_int(ret);
     if ((lname = strdup(res0->ai_canonname)) == NULL) {
 	freeaddrinfo(res0);
-	debug_return_bool(false);
+	debug_return_int(EAI_MEMORY);
     }
     if ((cp = strchr(lname, '.')) != NULL) {
 	sname = strndup(lname, (size_t)(cp - lname));
 	if (sname == NULL) {
 	    free(lname);
 	    freeaddrinfo(res0);
-	    debug_return_bool(false);
+	    debug_return_int(EAI_MEMORY);
 	}
     } else {
 	sname = lname;
@@ -1034,7 +1219,7 @@ resolve_host(const char *host, char **longp, char **shortp)
     *longp = lname;
     *shortp = sname;
 
-    debug_return_bool(true);
+    debug_return_int(0);
 }
 
 /*
@@ -1042,19 +1227,24 @@ resolve_host(const char *host, char **longp, char **shortp)
  * Sets user_host, user_shost, user_runhost and user_srunhost.
  */
 static bool
-set_fqdn(void)
+cb_fqdn(const union sudo_defs_val *sd_un)
 {
     bool remote;
+    int rc;
     char *lhost, *shost;
-    debug_decl(set_fqdn, SUDOERS_DEBUG_PLUGIN)
+    debug_decl(cb_fqdn, SUDOERS_DEBUG_PLUGIN);
+
+    /* Nothing to do if fqdn flag is disabled. */
+    if (sd_un != NULL && !sd_un->flag)
+	debug_return_bool(true);
 
     /* If the -h flag was given we need to resolve both host and runhost. */
     remote = strcmp(user_runhost, user_host) != 0;
 
     /* First resolve user_host, setting user_host and user_shost. */
-    if (!resolve_host(user_host, &lhost, &shost)) {
-	if (!resolve_host(user_runhost, &lhost, &shost)) {
-	    log_warning(SLOG_SEND_MAIL|SLOG_RAW_MSG,
+    if (resolve_host(user_host, &lhost, &shost) != 0) {
+	if ((rc = resolve_host(user_runhost, &lhost, &shost)) != 0) {
+	    gai_log_warning(SLOG_SEND_MAIL|SLOG_RAW_MSG, rc,
 		N_("unable to resolve host %s"), user_host);
 	    debug_return_bool(false);
 	}
@@ -1068,29 +1258,34 @@ set_fqdn(void)
     /* Next resolve user_runhost, setting user_runhost and user_srunhost. */
     lhost = shost = NULL;
     if (remote) {
-	/* Failure checked below. */
-	(void)resolve_host(user_runhost, &lhost, &shost);
+	if ((rc = resolve_host(user_runhost, &lhost, &shost)) != 0) {
+	    gai_log_warning(SLOG_NO_LOG|SLOG_RAW_MSG, rc,
+		N_("unable to resolve host %s"), user_runhost);
+	    debug_return_bool(false);
+	}
     } else {
 	/* Not remote, just use user_host. */
 	if ((lhost = strdup(user_host)) != NULL) {
 	    if (user_shost != user_host)
-		shost = strdup(lhost);
+		shost = strdup(user_shost);
 	    else
 		shost = lhost;
 	}
+	if (lhost == NULL || shost == NULL) {
+	    free(lhost);
+	    if (lhost != shost)
+		free(shost);
+	    sudo_warnx(U_("%s: %s"), __func__, U_("unable to allocate memory"));
+	    debug_return_bool(false);
+	}
     }
-    if (lhost == NULL || shost == NULL) {
-	free(lhost);
-	free(shost);
-	log_warning(SLOG_SEND_MAIL|SLOG_RAW_MSG,
-	    N_("unable to resolve host %s"), user_runhost);
-	debug_return_bool(false);
+    if (lhost != NULL && shost != NULL) {
+	if (user_srunhost != user_runhost)
+	    free(user_srunhost);
+	free(user_runhost);
+	user_runhost = lhost;
+	user_srunhost = shost;
     }
-    if (user_srunhost != user_runhost)
-	free(user_srunhost);
-    free(user_runhost);
-    user_runhost = lhost;
-    user_srunhost = shost;
 
     sudo_debug_printf(SUDO_DEBUG_INFO|SUDO_DEBUG_LINENO,
 	"host %s, shost %s, runhost %s, srunhost %s",
@@ -1106,20 +1301,23 @@ static bool
 set_runaspw(const char *user, bool quiet)
 {
     struct passwd *pw = NULL;
-    debug_decl(set_runaspw, SUDOERS_DEBUG_PLUGIN)
+    debug_decl(set_runaspw, SUDOERS_DEBUG_PLUGIN);
 
+    unknown_runas_uid = false;
     if (*user == '#') {
 	const char *errstr;
-	uid_t uid = sudo_strtoid(user + 1, NULL, NULL, &errstr);
+	uid_t uid = sudo_strtoid(user + 1, &errstr);
 	if (errstr == NULL) {
-	    if ((pw = sudo_getpwuid(uid)) == NULL)
+	    if ((pw = sudo_getpwuid(uid)) == NULL) {
+		unknown_runas_uid = true;
 		pw = sudo_fakepwnam(user, user_gid);
+	    }
 	}
     }
     if (pw == NULL) {
 	if ((pw = sudo_getpwnam(user)) == NULL) {
 	    if (!quiet)
-		log_warningx(SLOG_RAW_MSG, N_("unknown user: %s"), user);
+		log_warningx(SLOG_AUDIT, N_("unknown user: %s"), user);
 	    debug_return_bool(false);
 	}
     }
@@ -1137,20 +1335,23 @@ static bool
 set_runasgr(const char *group, bool quiet)
 {
     struct group *gr = NULL;
-    debug_decl(set_runasgr, SUDOERS_DEBUG_PLUGIN)
+    debug_decl(set_runasgr, SUDOERS_DEBUG_PLUGIN);
 
+    unknown_runas_gid = false;
     if (*group == '#') {
 	const char *errstr;
-	gid_t gid = sudo_strtoid(group + 1, NULL, NULL, &errstr);
+	gid_t gid = sudo_strtoid(group + 1, &errstr);
 	if (errstr == NULL) {
-	    if ((gr = sudo_getgrgid(gid)) == NULL)
+	    if ((gr = sudo_getgrgid(gid)) == NULL) {
+		unknown_runas_gid = true;
 		gr = sudo_fakegrnam(group);
+	    }
 	}
     }
     if (gr == NULL) {
 	if ((gr = sudo_getgrnam(group)) == NULL) {
 	    if (!quiet)
-		log_warningx(SLOG_RAW_MSG, N_("unknown group: %s"), group);
+		log_warningx(SLOG_AUDIT, N_("unknown group: %s"), group);
 	    debug_return_bool(false);
 	}
     }
@@ -1164,21 +1365,274 @@ set_runasgr(const char *group, bool quiet)
  * Callback for runas_default sudoers setting.
  */
 static bool
-cb_runas_default(const char *user)
+cb_runas_default(const union sudo_defs_val *sd_un)
 {
+    debug_decl(cb_runas_default, SUDOERS_DEBUG_PLUGIN);
+
     /* Only reset runaspw if user didn't specify one. */
-    if (!runas_user && !runas_group)
-	return set_runaspw(user, true);
-    return true;
+    if (sudo_user.runas_user == NULL && sudo_user.runas_group == NULL)
+	debug_return_bool(set_runaspw(sd_un->str, true));
+    debug_return_bool(true);
 }
 
 /*
- * Callback for sudoers_locale sudoers setting.
+ * Callback for tty_tickets sudoers setting.
  */
 static bool
-cb_sudoers_locale(const char *locale)
+cb_tty_tickets(const union sudo_defs_val *sd_un)
 {
-    return sudoers_initlocale(NULL, locale);
+    debug_decl(cb_tty_tickets, SUDOERS_DEBUG_PLUGIN);
+
+    /* Convert tty_tickets -> timestamp_type */
+    if (sd_un->flag)
+	def_timestamp_type = tty;
+    else
+	def_timestamp_type = global;
+    debug_return_bool(true);
+}
+
+/*
+ * Callback for umask sudoers setting.
+ */
+static bool
+cb_umask(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_umask, SUDOERS_DEBUG_PLUGIN);
+
+    /* Force umask if explicitly set in sudoers. */
+    force_umask = sd_un->mode != ACCESSPERMS;
+
+    debug_return_bool(true);
+}
+
+/*
+ * Callback for runchroot sudoers setting.
+ */
+static bool
+cb_runchroot(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_runchroot, SUDOERS_DEBUG_PLUGIN);
+
+    sudo_debug_printf(SUDO_DEBUG_INFO|SUDO_DEBUG_LINENO,
+	"def_runchroot now %s", sd_un->str);
+    if (user_cmnd != NULL) {
+	/* Update user_cmnd based on the new chroot. */
+	cmnd_status = set_cmnd_path(sd_un->str);
+	sudo_debug_printf(SUDO_DEBUG_INFO|SUDO_DEBUG_LINENO,
+	    "user_cmnd now %s", user_cmnd);
+    }
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_logfile(const union sudo_defs_val *sd_un)
+{
+    int logtype = def_syslog ? EVLOG_SYSLOG : EVLOG_NONE;
+    debug_decl(cb_logfile, SUDOERS_DEBUG_PLUGIN);
+
+    if (sd_un->str != NULL)
+	SET(logtype, EVLOG_FILE);
+    eventlog_set_type(logtype);
+    eventlog_set_logpath(sd_un->str);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_log_format(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_log_format, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_format(sd_un->tuple == sudo ? EVLOG_SUDO : EVLOG_JSON);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_syslog(const union sudo_defs_val *sd_un)
+{
+    int logtype = def_logfile ? EVLOG_FILE : EVLOG_NONE;
+    debug_decl(cb_syslog, SUDOERS_DEBUG_PLUGIN);
+
+    if (sd_un->str != NULL)
+	SET(logtype, EVLOG_SYSLOG);
+    eventlog_set_type(logtype);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_syslog_goodpri(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_syslog_goodpri, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_syslog_acceptpri(sd_un->ival);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_syslog_badpri(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_syslog_badpri, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_syslog_rejectpri(sd_un->ival);
+    eventlog_set_syslog_alertpri(sd_un->ival);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_syslog_maxlen(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_syslog_maxlen, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_syslog_maxlen(sd_un->ival);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_loglinelen(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_loglinelen, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_file_maxlen(sd_un->ival);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_log_year(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_syslog_maxlen, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_time_fmt(sd_un->flag ? "%h %e %T %Y" : "%h %e %T");
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_log_host(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_syslog_maxlen, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_omit_hostname(!sd_un->flag);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_mailerpath(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_mailerpath, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_mailerpath(sd_un->str);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_mailerflags(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_mailerflags, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_mailerflags(sd_un->str);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_mailfrom(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_mailfrom, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_mailfrom(sd_un->str);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_mailto(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_mailto, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_mailto(sd_un->str);
+
+    debug_return_bool(true);
+}
+
+static bool
+cb_mailsub(const union sudo_defs_val *sd_un)
+{
+    debug_decl(cb_mailsub, SUDOERS_DEBUG_PLUGIN);
+
+    eventlog_set_mailsub(sd_un->str);
+
+    debug_return_bool(true);
+}
+
+/*
+ * Set parse Defaults callbacks.
+ * We do this here instead in def_data.in so we don't have to
+ * stub out the callbacks for visudo and testsudoers.
+ */
+static void
+set_callbacks(void)
+{
+    debug_decl(set_callbacks, SUDOERS_DEBUG_PLUGIN);
+
+    /* Set fqdn callback. */
+    sudo_defs_table[I_FQDN].callback = cb_fqdn;
+
+    /* Set group_plugin callback. */
+    sudo_defs_table[I_GROUP_PLUGIN].callback = cb_group_plugin;
+
+    /* Set runas callback. */
+    sudo_defs_table[I_RUNAS_DEFAULT].callback = cb_runas_default;
+
+    /* Set locale callback. */
+    sudo_defs_table[I_SUDOERS_LOCALE].callback = sudoers_locale_callback;
+
+    /* Set maxseq callback. */
+    sudo_defs_table[I_MAXSEQ].callback = cb_maxseq;
+
+    /* Set iolog_user callback. */
+    sudo_defs_table[I_IOLOG_USER].callback = cb_iolog_user;
+
+    /* Set iolog_group callback. */
+    sudo_defs_table[I_IOLOG_GROUP].callback = cb_iolog_group;
+
+    /* Set iolog_mode callback. */
+    sudo_defs_table[I_IOLOG_MODE].callback = cb_iolog_mode;
+
+    /* Set tty_tickets callback. */
+    sudo_defs_table[I_TTY_TICKETS].callback = cb_tty_tickets;
+
+    /* Set umask callback. */
+    sudo_defs_table[I_UMASK].callback = cb_umask;
+
+    /* Set runchroot callback. */
+    sudo_defs_table[I_RUNCHROOT].callback = cb_runchroot;
+
+    /* eventlog callbacks */
+    sudo_defs_table[I_SYSLOG].callback = cb_syslog;
+    sudo_defs_table[I_SYSLOG_GOODPRI].callback = cb_syslog_goodpri;
+    sudo_defs_table[I_SYSLOG_BADPRI].callback = cb_syslog_badpri;
+    sudo_defs_table[I_SYSLOG_MAXLEN].callback = cb_syslog_maxlen;
+    sudo_defs_table[I_LOGLINELEN].callback = cb_loglinelen;
+    sudo_defs_table[I_LOG_HOST].callback = cb_log_host;
+    sudo_defs_table[I_LOGFILE].callback = cb_logfile;
+    sudo_defs_table[I_LOG_FORMAT].callback = cb_log_format;
+    sudo_defs_table[I_LOG_YEAR].callback = cb_log_year;
+    sudo_defs_table[I_MAILERPATH].callback = cb_mailerpath;
+    sudo_defs_table[I_MAILERFLAGS].callback = cb_mailerflags;
+    sudo_defs_table[I_MAILFROM].callback = cb_mailfrom;
+    sudo_defs_table[I_MAILTO].callback = cb_mailto;
+    sudo_defs_table[I_MAILSUB].callback = cb_mailsub;
+
+    debug_return;
 }
 
 /*
@@ -1188,7 +1642,7 @@ void
 sudoers_cleanup(void)
 {
     struct sudo_nss *nss;
-    debug_decl(sudoers_cleanup, SUDOERS_DEBUG_PLUGIN)
+    debug_decl(sudoers_cleanup, SUDOERS_DEBUG_PLUGIN);
 
     if (snl != NULL) {
 	TAILQ_FOREACH(nss, snl, entries) {
@@ -1203,63 +1657,13 @@ sudoers_cleanup(void)
     debug_return;
 }
 
-/*
- * Determine which editor to use.  We don't need to worry about restricting
- * this to a "safe" editor since it runs with the uid of the invoking user,
- * not the runas (privileged) user.
- * Returns a fully-qualified path to the editor on success and fills
- * in argc_out and argv_out accordingly.  Returns NULL on failure.
- */
-static char *
-find_editor(int nfiles, char **files, int *argc_out, char ***argv_out)
-{
-    const char *cp, *ep, *editor = NULL;
-    char *editor_path = NULL, **ev, *ev0[4];
-    debug_decl(find_editor, SUDOERS_DEBUG_PLUGIN)
-
-    /*
-     * If any of SUDO_EDITOR, VISUAL or EDITOR are set, choose the first one.
-     */
-    ev0[0] = "SUDO_EDITOR";
-    ev0[1] = "VISUAL";
-    ev0[2] = "EDITOR";
-    ev0[3] = NULL;
-    for (ev = ev0; editor_path == NULL && *ev != NULL; ev++) {
-	if ((editor = getenv(*ev)) != NULL && *editor != '\0') {
-	    editor_path = resolve_editor(editor, strlen(editor),
-		nfiles, files, argc_out, argv_out, NULL);
-	    if (editor_path != NULL)
-		break;
-	    if (errno != ENOENT)
-		debug_return_str(NULL);
-	}
-    }
-    if (editor_path == NULL) {
-	/* def_editor could be a path, split it up, avoiding strtok() */
-	const char *def_editor_end = def_editor + strlen(def_editor);
-	for (cp = sudo_strsplit(def_editor, def_editor_end, ":", &ep);
-	    cp != NULL; cp = sudo_strsplit(NULL, def_editor_end, ":", &ep)) {
-	    editor_path = resolve_editor(cp, (size_t)(ep - cp), nfiles,
-		files, argc_out, argv_out, NULL);
-	    if (editor_path == NULL && errno != ENOENT)
-		debug_return_str(NULL);
-	}
-    }
-    if (!editor_path) {
-	audit_failure(NewArgc, NewArgv, N_("%s: command not found"),
-	    editor ? editor : def_editor);
-	sudo_warnx(U_("%s: command not found"), editor ? editor : def_editor);
-    }
-    debug_return_str(editor_path);
-}
-
 #ifdef USE_ADMIN_FLAG
 static int
 create_admin_success_flag(void)
 {
     char flagfile[PATH_MAX];
-    int len, rval = -1;
-    debug_decl(create_admin_success_flag, SUDOERS_DEBUG_PLUGIN)
+    int len, ret = -1;
+    debug_decl(create_admin_success_flag, SUDOERS_DEBUG_PLUGIN);
 
     /* Check whether the user is in the sudo or admin group. */
     if (!user_in_group(sudo_user.pw, "sudo") &&
@@ -1269,19 +1673,19 @@ create_admin_success_flag(void)
     /* Build path to flag file. */
     len = snprintf(flagfile, sizeof(flagfile), "%s/.sudo_as_admin_successful",
 	user_dir);
-    if (len <= 0 || (size_t)len >= sizeof(flagfile))
+    if (len < 0 || len >= ssizeof(flagfile))
 	debug_return_int(false);
 
     /* Create admin flag file if it doesn't already exist. */
     if (set_perms(PERM_USER)) {
 	int fd = open(flagfile, O_CREAT|O_WRONLY|O_NONBLOCK|O_EXCL, 0644);
-	rval = fd != -1 || errno == EEXIST;
+	ret = fd != -1 || errno == EEXIST;
 	if (fd != -1)
 	    close(fd);
 	if (!restore_perms())
-	    rval = -1;
+	    ret = -1;
     }
-    debug_return_int(rval);
+    debug_return_int(ret);
 }
 #else /* !USE_ADMIN_FLAG */
 static int
@@ -1295,12 +1699,13 @@ create_admin_success_flag(void)
 static bool
 tty_present(void)
 {
-#if defined(HAVE_STRUCT_KINFO_PROC2_P_TDEV) || defined(HAVE_STRUCT_KINFO_PROC_P_TDEV) || defined(HAVE_STRUCT_KINFO_PROC_KI_TDEV) || defined(HAVE_STRUCT_KINFO_PROC_KP_EPROC_E_TDEV) || defined(HAVE_STRUCT_PSINFO_PR_TTYDEV) || defined(HAVE_PSTAT_GETPROC) || defined(__linux__)
-    return user_ttypath != NULL;
-#else
-    int fd = open(_PATH_TTY, O_RDWR);
-    if (fd != -1)
+    debug_decl(tty_present, SUDOERS_DEBUG_PLUGIN);
+    
+    if (user_ttypath == NULL) {
+	int fd = open(_PATH_TTY, O_RDWR);
+	if (fd == -1)
+	    debug_return_bool(false);
 	close(fd);
-    return fd != -1;
-#endif
+    }
+    debug_return_bool(true);
 }

@@ -1,6 +1,8 @@
 /*
- * Copyright (c) 1996, 1998-2005, 2010-2012, 2014-2015
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 1996, 1998-2005, 2010-2012, 2014-2016
+ *	Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,18 +21,16 @@
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
-#include <unistd.h>
+#include <string.h>
 #include <errno.h>
 
 #include "sudoers.h"
@@ -39,25 +39,35 @@
  * Verify that path is a normal file and executable by root.
  */
 bool
-sudo_goodpath(const char *path, struct stat *sbp)
+sudo_goodpath(const char *path, const char *runchroot, struct stat *sbp)
 {
-    bool rval = false;
-    debug_decl(sudo_goodpath, SUDOERS_DEBUG_UTIL)
+    bool ret = false;
+    debug_decl(sudo_goodpath, SUDOERS_DEBUG_UTIL);
 
     if (path != NULL) {
+	char pathbuf[PATH_MAX];
 	struct stat sb;
 
+	if (runchroot != NULL) {
+	    const int len =
+		snprintf(pathbuf, sizeof(pathbuf), "%s%s", runchroot, path);
+	    if (len >= ssizeof(pathbuf)) {
+		errno = ENAMETOOLONG;
+		goto done;
+	    }
+	    path = pathbuf; // -V507
+	}
 	if (sbp == NULL)
 	    sbp = &sb;
 
 	if (stat(path, sbp) == 0) {
 	    /* Make sure path describes an executable regular file. */
-	    if (S_ISREG(sbp->st_mode) && ISSET(sbp->st_mode, 0111))
-		rval = true;
+	    if (S_ISREG(sbp->st_mode) && ISSET(sbp->st_mode, S_IXUSR|S_IXGRP|S_IXOTH))
+		ret = true;
 	    else
 		errno = EACCES;
 	}
     }
-
-    debug_return_bool(rval);
+done:
+    debug_return_bool(ret);
 }

@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2009-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2009-2015 Todd C. Miller <Todd.Miller@sudo.ws>
  * Copyright (c) 2009 Christian S.J. Peron
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -15,20 +17,23 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
 #ifdef HAVE_BSM_AUDIT
 
-#include <sys/types.h>
+#include <sys/types.h>		/* for pid_t */
 
 #include <bsm/audit.h>
 #include <bsm/libbsm.h>
 #include <bsm/audit_uevents.h>
 
 #include <stdio.h>
-#include <string.h>
 #include <stdarg.h>
-#include <pwd.h>
 #include <errno.h>
 #include <unistd.h>
 
@@ -45,6 +50,10 @@
 # define AUDIT_NOT_CONFIGURED	ENOSYS
 #endif
 
+#ifdef __FreeBSD__
+# define BSM_AUDIT_COMPAT
+#endif
+
 static au_event_t sudo_audit_event = AUE_sudo;
 
 static int
@@ -53,18 +62,22 @@ audit_sudo_selected(int sorf)
 	auditinfo_addr_t ainfo_addr;
 	struct au_mask *mask;
 	int rc;
-	debug_decl(audit_sudo_selected, SUDOERS_DEBUG_AUDIT)
+	debug_decl(audit_sudo_selected, SUDOERS_DEBUG_AUDIT);
 
 	if (getaudit_addr(&ainfo_addr, sizeof(ainfo_addr)) < 0) {
+#ifdef BSM_AUDIT_COMPAT
 		if (errno == ENOSYS) {
 			auditinfo_t ainfo;
+
 			/* Fall back to older BSM API. */
 			if (getaudit(&ainfo) < 0) {
 				sudo_warn("getaudit");
 				debug_return_int(-1);
 			}
 			mask = &ainfo.ai_mask;
-		} else {
+		} else
+#endif /* BSM_AUDIT_COMPAT */
+		{
 			sudo_warn("getaudit_addr");
 			debug_return_int(-1);
 		}
@@ -91,16 +104,15 @@ audit_sudo_selected(int sorf)
  * Returns 0 on success or -1 on error.
  */
 int
-bsm_audit_success(char *exec_args[])
+bsm_audit_success(char *const exec_args[])
 {
 	auditinfo_addr_t ainfo_addr;
-	auditinfo_t ainfo;
 	token_t *tok;
 	au_id_t auid;
 	long au_cond;
 	int aufd, selected;
 	pid_t pid;
-	debug_decl(bsm_audit_success, SUDOERS_DEBUG_AUDIT)
+	debug_decl(bsm_audit_success, SUDOERS_DEBUG_AUDIT);
 
 	/*
 	 * If we are not auditing, don't cut an audit record; just return.
@@ -108,7 +120,7 @@ bsm_audit_success(char *exec_args[])
 	if (auditon(A_GETCOND, (caddr_t)&au_cond, sizeof(long)) < 0) {
 		if (errno == AUDIT_NOT_CONFIGURED)
 			debug_return_int(0);
-		sudo_warn(U_("Could not determine audit condition"));
+		sudo_warn("%s", U_("Could not determine audit condition"));
 		debug_return_int(-1);
 	}
 	if (au_cond == AUC_NOAUDIT)
@@ -132,7 +144,10 @@ bsm_audit_success(char *exec_args[])
 	if (getaudit_addr(&ainfo_addr, sizeof(ainfo_addr)) == 0) {
 		tok = au_to_subject_ex(auid, geteuid(), getegid(), getuid(),
 		    getuid(), pid, pid, &ainfo_addr.ai_termid);
+#ifdef BSM_AUDIT_COMPAT
 	} else if (errno == ENOSYS) {
+		auditinfo_t ainfo;
+
 		/*
 		 * NB: We should probably watch out for ERANGE here.
 		 */
@@ -142,6 +157,7 @@ bsm_audit_success(char *exec_args[])
 		}
 		tok = au_to_subject(auid, geteuid(), getegid(), getuid(),
 		    getuid(), pid, pid, &ainfo.ai_termid);
+#endif /* BSM_AUDIT_COMPAT */
 	} else {
 		sudo_warn("getaudit_addr");
 		debug_return_int(-1);
@@ -151,7 +167,7 @@ bsm_audit_success(char *exec_args[])
 		debug_return_int(-1);
 	}
 	au_write(aufd, tok);
-	tok = au_to_exec_args(exec_args);
+	tok = au_to_exec_args((char **)exec_args);
 	if (tok == NULL) {
 		sudo_warn("au_to_exec_args");
 		debug_return_int(-1);
@@ -163,13 +179,13 @@ bsm_audit_success(char *exec_args[])
 		debug_return_int(-1);
 	}
 	au_write(aufd, tok);
-#ifdef __sun
+#ifdef HAVE_AU_CLOSE_SOLARIS11
 	if (au_close(aufd, 1, sudo_audit_event, 0) == -1)
 #else
 	if (au_close(aufd, 1, sudo_audit_event) == -1)
 #endif
 	{
-		sudo_warn(U_("unable to commit audit record"));
+		sudo_warn("%s", U_("unable to commit audit record"));
 		debug_return_int(-1);
 	}
 	debug_return_int(0);
@@ -179,17 +195,15 @@ bsm_audit_success(char *exec_args[])
  * Returns 0 on success or -1 on error.
  */
 int
-bsm_audit_failure(char *exec_args[], char const *const fmt, va_list ap)
+bsm_audit_failure(char *const exec_args[], const char *errmsg)
 {
 	auditinfo_addr_t ainfo_addr;
-	auditinfo_t ainfo;
-	char text[256];
 	token_t *tok;
 	long au_cond;
 	au_id_t auid;
 	pid_t pid;
 	int aufd;
-	debug_decl(bsm_audit_success, SUDOERS_DEBUG_AUDIT)
+	debug_decl(bsm_audit_failure, SUDOERS_DEBUG_AUDIT);
 
 	/*
 	 * If we are not auditing, don't cut an audit record; just return.
@@ -197,7 +211,7 @@ bsm_audit_failure(char *exec_args[], char const *const fmt, va_list ap)
 	if (auditon(A_GETCOND, (caddr_t)&au_cond, sizeof(long)) < 0) {
 		if (errno == AUDIT_NOT_CONFIGURED)
 			debug_return_int(0);
-		sudo_warn(U_("Could not determine audit condition"));
+		sudo_warn("%s", U_("Could not determine audit condition"));
 		debug_return_int(-1);
 	}
 	if (au_cond == AUC_NOAUDIT)
@@ -216,13 +230,17 @@ bsm_audit_failure(char *exec_args[], char const *const fmt, va_list ap)
 	if (getaudit_addr(&ainfo_addr, sizeof(ainfo_addr)) == 0) { 
 		tok = au_to_subject_ex(auid, geteuid(), getegid(), getuid(),
 		    getuid(), pid, pid, &ainfo_addr.ai_termid);
+#ifdef BSM_AUDIT_COMPAT
 	} else if (errno == ENOSYS) {
+		auditinfo_t ainfo;
+
 		if (getaudit(&ainfo) < 0) {
 			sudo_warn("getaudit");
 			debug_return_int(-1);
 		}
 		tok = au_to_subject(auid, geteuid(), getegid(), getuid(),
 		    getuid(), pid, pid, &ainfo.ai_termid);
+#endif /* BSM_AUDIT_COMPAT */
 	} else {
 		sudo_warn("getaudit_addr");
 		debug_return_int(-1);
@@ -232,14 +250,13 @@ bsm_audit_failure(char *exec_args[], char const *const fmt, va_list ap)
 		debug_return_int(-1);
 	}
 	au_write(aufd, tok);
-	tok = au_to_exec_args(exec_args);
+	tok = au_to_exec_args((char **)exec_args);
 	if (tok == NULL) {
 		sudo_warn("au_to_exec_args");
 		debug_return_int(-1);
 	}
 	au_write(aufd, tok);
-	(void) vsnprintf(text, sizeof(text), fmt, ap);
-	tok = au_to_text(text);
+	tok = au_to_text((char *)errmsg);
 	if (tok == NULL) {
 		sudo_warn("au_to_text");
 		debug_return_int(-1);
@@ -251,13 +268,13 @@ bsm_audit_failure(char *exec_args[], char const *const fmt, va_list ap)
 		debug_return_int(-1);
 	}
 	au_write(aufd, tok);
-#ifdef __sun
+#ifdef HAVE_AU_CLOSE_SOLARIS11
 	if (au_close(aufd, 1, sudo_audit_event, PAD_FAILURE) == -1)
 #else
 	if (au_close(aufd, 1, sudo_audit_event) == -1)
 #endif
 	{
-		sudo_warn(U_("unable to commit audit record"));
+		sudo_warn("%s", U_("unable to commit audit record"));
 		debug_return_int(-1);
 	}
 	debug_return_int(0);

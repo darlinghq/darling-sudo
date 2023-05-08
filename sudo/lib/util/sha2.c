@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2013-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2013-2015 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,6 +17,11 @@
  */
 
 /*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
+/*
  * Implementation of SHA-224, SHA-256, SHA-384 and SHA-512
  * as per FIPS 180-4: Secure Hash Standard (SHS)
  * http://csrc.nist.gov/publications/fips/fips180-4/fips-180-4.pdf
@@ -24,16 +31,7 @@
  */
 
 #include <config.h>
-
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #if defined(HAVE_STDINT_H)
 # include <stdint.h>
 #elif defined(HAVE_INTTYPES_H)
@@ -239,8 +237,8 @@ SHA256Transform(uint32_t state[8], const uint8_t data[SHA256_BLOCK_LENGTH])
 	state[6] += g(0);
 	state[7] += h(0);
 	/* Cleanup */
-	memset_s(T, sizeof(T), 0, sizeof(T));
-	memset_s(W, sizeof(W), 0, sizeof(W));
+	explicit_bzero(T, sizeof(T));
+	explicit_bzero(W, sizeof(W));
 }
 
 #undef S0
@@ -255,7 +253,7 @@ SHA256Update(SHA2_CTX *ctx, const uint8_t *data, size_t len)
 	size_t i = 0, j;
 
 	j = (size_t)((ctx->count[0] >> 3) & (SHA256_BLOCK_LENGTH - 1));
-	ctx->count[0] += (len << 3);
+	ctx->count[0] += ((uint64_t)len << 3);
 	if ((j + len) > SHA256_BLOCK_LENGTH - 1) {
 		memcpy(&ctx->buffer[j], data, (i = SHA256_BLOCK_LENGTH - j));
 		SHA256Transform(ctx->state.st32, ctx->buffer);
@@ -456,8 +454,8 @@ SHA512Transform(uint64_t state[8], const uint8_t data[SHA512_BLOCK_LENGTH])
 	state[6] += g(0);
 	state[7] += h(0);
 	/* Cleanup. */
-	memset_s(T, sizeof(T), 0, sizeof(T));
-	memset_s(W, sizeof(W), 0, sizeof(W));
+	explicit_bzero(T, sizeof(T));
+	explicit_bzero(W, sizeof(W));
 }
 
 void
@@ -466,8 +464,8 @@ SHA512Update(SHA2_CTX *ctx, const uint8_t *data, size_t len)
 	size_t i = 0, j;
 
 	j = (size_t)((ctx->count[0] >> 3) & (SHA512_BLOCK_LENGTH - 1));
-	ctx->count[0] += (len << 3);
-	if (ctx->count[0] < (len << 3))
+	ctx->count[0] += ((uint64_t)len << 3);
+	if (ctx->count[0] < ((uint64_t)len << 3))
 		ctx->count[1]++;
 	if ((j + len) > SHA512_BLOCK_LENGTH - 1) {
 		memcpy(&ctx->buffer[j], data, (i = SHA512_BLOCK_LENGTH - j));

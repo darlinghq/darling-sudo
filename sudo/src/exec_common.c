@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2009-2016 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2009-2016 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,29 +16,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <unistd.h>
 #ifdef HAVE_PRIV_SET
 # include <priv.h>
 #endif
 #include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
 
 #include "sudo.h"
 #include "sudo_exec.h"
 
-#ifdef _PATH_SUDO_NOEXEC
+#ifdef RTLD_PRELOAD_VAR
 /*
  * Add a DSO file to LD_PRELOAD or the system equivalent.
  */
@@ -52,7 +51,7 @@ preload_dso(char *envp[], const char *dso_file)
 # else
     const bool enabled = true;
 # endif
-    debug_decl(preload_dso, SUDO_DEBUG_UTIL)
+    debug_decl(preload_dso, SUDO_DEBUG_UTIL);
 
     /*
      * Preload a DSO file.  For a list of LD_PRELOAD-alikes, see
@@ -100,7 +99,7 @@ preload_dso(char *envp[], const char *dso_file)
      * whether it was dynamically allocated. [TODO: plugin API]
      */
     if (preload_idx == -1 || !enabled) {
-	const int env_size = env_len + 1 + (preload_idx == -1) + enabled;
+	const int env_size = env_len + 1 + (preload_idx == -1) + enabled; // -V547
 
 	char **nenvp = reallocarray(NULL, env_size, sizeof(*envp));
 	if (nenvp == NULL)
@@ -144,17 +143,17 @@ preload_dso(char *envp[], const char *dso_file)
 
     debug_return_ptr(envp);
 }
-#endif /* _PATH_SUDO_NOEXEC */
+#endif /* RTLD_PRELOAD_VAR */
 
 /*
  * Disable execution of child processes in the command we are about
  * to run.  On systems with privilege sets, we can remove the exec
  * privilege.  On other systems we use LD_PRELOAD and the like.
  */
-static char **
-disable_execute(char *envp[])
+char **
+disable_execute(char *envp[], const char *dso)
 {
-    debug_decl(disable_execute, SUDO_DEBUG_UTIL)
+    debug_decl(disable_execute, SUDO_DEBUG_UTIL);
 
 #ifdef HAVE_PRIV_SET
     /* Solaris privileges, remove PRIV_PROC_EXEC post-execve. */
@@ -163,13 +162,13 @@ disable_execute(char *envp[])
     (void)priv_set(PRIV_ON, PRIV_INHERITABLE, "PRIV_FILE_DAC_SEARCH", NULL);
     if (priv_set(PRIV_OFF, PRIV_LIMIT, "PRIV_PROC_EXEC", NULL) == 0)
 	debug_return_ptr(envp);
-    sudo_warn(U_("unable to remove PRIV_PROC_EXEC from PRIV_LIMIT"));
+    sudo_warn("%s", U_("unable to remove PRIV_PROC_EXEC from PRIV_LIMIT"));
 #endif /* HAVE_PRIV_SET */
 
-#ifdef _PATH_SUDO_NOEXEC
-    if (sudo_conf_noexec_path() != NULL)
-	envp = preload_dso(envp, sudo_conf_noexec_path());
-#endif /* _PATH_SUDO_NOEXEC */
+#ifdef RTLD_PRELOAD_VAR
+    if (dso != NULL)
+	envp = preload_dso(envp, dso);
+#endif /* RTLD_PRELOAD_VAR */
 
     debug_return_ptr(envp);
 }
@@ -181,13 +180,13 @@ disable_execute(char *envp[])
 int
 sudo_execve(int fd, const char *path, char *const argv[], char *envp[], bool noexec)
 {
-    debug_decl(sudo_execve, SUDO_DEBUG_UTIL)
+    debug_decl(sudo_execve, SUDO_DEBUG_UTIL);
 
     sudo_debug_execve(SUDO_DEBUG_INFO, path, argv, envp);
 
     /* Modify the environment as needed to disable further execve(). */
     if (noexec)
-	envp = disable_execute(envp);
+	envp = disable_execute(envp, sudo_conf_noexec_path());
 
 #ifdef HAVE_FEXECVE
     if (fd != -1)

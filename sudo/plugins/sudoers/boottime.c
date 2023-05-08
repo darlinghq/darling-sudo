@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2009-2015 Todd C. Miller <Todd.Miller@courtesan.com>
+ * SPDX-License-Identifier: ISC
+ *
+ * Copyright (c) 2009-2015, 2018 Todd C. Miller <Todd.Miller@sudo.ws>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,29 +16,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is an open source non-commercial project. Dear PVS-Studio, please check it.
+ * PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
+ */
+
 #include <config.h>
 
-#include <sys/types.h>
+#include <sys/types.h>		/* for size_t, ssize_t */
 #include <sys/time.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef HAVE_STDBOOL_H
-# include <stdbool.h>
-#else
-# include "compat/stdbool.h"
-#endif /* HAVE_STDBOOL_H */
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
+#include <string.h>
 #include <errno.h>
 #include <limits.h>
-#ifdef TIME_WITH_SYS_TIME
-# include <time.h>
-#endif
+#include <time.h>
 #ifndef __linux__
 # if defined(HAVE_SYSCTL) && defined(KERN_BOOTTIME)
 #  include <sys/sysctl.h>
@@ -64,16 +59,16 @@ get_boottime(struct timespec *ts)
     long long llval;
     ssize_t len;
     FILE *fp;
-    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL)
+    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL);
 
     /* read btime from /proc/stat */
     fp = fopen("/proc/stat", "r");
     if (fp != NULL) {
-	while ((len = getline(&line, &linesize, fp)) != -1) {
+	while ((len = getdelim(&line, &linesize, '\n', fp)) != -1) {
 	    if (strncmp(line, "btime ", 6) == 0) {
 		if (line[len - 1] == '\n')
 		    line[len - 1] = '\0';
-		llval = strtonum(line + 6, 1, LLONG_MAX, NULL);
+		llval = sudo_strtonum(line + 6, 1, LLONG_MAX, NULL);
 		if (llval > 0) {
 		    ts->tv_sec = (time_t)llval;
 		    ts->tv_nsec = 0;
@@ -102,7 +97,7 @@ get_boottime(struct timespec *ts)
     size_t size;
     int mib[2];
     struct timeval tv;
-    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL)
+    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL);
 
     mib[0] = CTL_KERN;
     mib[1] = KERN_BOOTTIME;
@@ -125,7 +120,7 @@ bool
 get_boottime(struct timespec *ts)
 {
     struct utmpx *ut, key;
-    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL)
+    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL);
 
     memset(&key, 0, sizeof(key));
     key.ut_type = BOOT_TIME;
@@ -146,7 +141,7 @@ bool
 get_boottime(struct timespec *ts)
 {
     struct utmp *ut, key;
-    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL)
+    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL);
 
     memset(&key, 0, sizeof(key));
     key.ut_type = BOOT_TIME;
@@ -166,7 +161,7 @@ get_boottime(struct timespec *ts)
 bool
 get_boottime(struct timespec *ts)
 {
-    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL)
+    debug_decl(get_boottime, SUDOERS_DEBUG_UTIL);
     debug_return_bool(false);
 }
 #endif
